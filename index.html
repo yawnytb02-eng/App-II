@@ -2076,10 +2076,21 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 /* PHONE WIDTHS ONLY */
 @media (max-width:619px){
   #app{padding-left:4px;padding-right:4px;}                                  /* 4px more breathing room at the sides */
-  .bottom-tabs button{padding:12px 4px 10px;gap:5px;font-size:11px;}         /* roomier bottom bar... */
-  .bottom-tabs button svg{width:22px;height:22px;}                           /* ...with slightly bigger icons */
-  .assist-toggle{bottom:calc(96px + env(safe-area-inset-bottom, 0px));}      /* keep the Assist button clear of the bar */
-  .assist .assist-toggle{bottom:calc(112px + env(safe-area-inset-bottom, 0px));}
+}
+
+/* SLIM NAV BAR (Instagram-style): docked to the bottom, full width, icons only, thin line on top.
+   --nav-h is the one number everything else (page padding, Finish bar, Assist button) reads, so the bar can be resized in one place. */
+:root{--nav-h:50px;}
+.assist{--nav-h:60px;}
+#app{padding-bottom:calc(var(--nav-h) + 56px + env(safe-area-inset-bottom,0px));}
+.bottom-tabs,.assist .bottom-tabs{left:0;right:0;bottom:0;transform:none;width:100%;max-width:none;margin:0;padding:0 0 env(safe-area-inset-bottom,0px);height:calc(var(--nav-h) + env(safe-area-inset-bottom,0px));background:var(--bg);border-radius:0;box-shadow:none;border-top:1px solid var(--line);-webkit-backdrop-filter:none;backdrop-filter:none;}
+.bottom-tabs button,.assist .bottom-tabs button{flex:1;height:var(--nav-h);min-height:0;padding:0;gap:0;justify-content:center;align-items:center;background:none;color:var(--muted);border-radius:0;font-size:0;}
+.bottom-tabs button.active{background:none;color:var(--ink);}
+.bottom-tabs button svg,.assist .bottom-tabs button svg{width:25px;height:25px;}
+.bottom-tabs button.active svg{stroke-width:2.5;}
+.assist .bottom-tabs button svg{width:29px;height:29px;}
+@media (max-width:1099px){   /* the bar is hidden on wide screens (a side rail takes over), so these only apply below that */
+  html .assist-toggle,html .assist .assist-toggle{bottom:calc(var(--nav-h) + 14px + env(safe-area-inset-bottom,0px));}
 }
 </style>
 </head>
@@ -2108,7 +2119,7 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
    real device clock is always used instead. This is the only
    line that differs between the two shipped files.
    ============================================================ */
-window.APP_TEST_MODE = (function(){ try{ return localStorage.getItem('hustlers-logbook-v1-mode')==='test'; }catch(e){ return false; } })();
+window.APP_TEST_MODE = false;
 
 /* Brand strings, read once from the config block at the end of
    <head>. The fallback object is only reached if that block was
@@ -2123,7 +2134,7 @@ const BRAND = (window.LOGBOOK && window.LOGBOOK.brand) || {
    DATA STORAGE
    All your data is one object (DB) saved in localStorage under STORAGE_KEY. Test mode swaps the key to STORAGE_KEY + '-test'.
    ============================================================ */
-const STORAGE_KEY = 'hustlers-logbook-v1' + (function(){ try{ return localStorage.getItem('hustlers-logbook-v1-mode')==='test' ? '-test' : ''; }catch(e){ return ''; } })();
+const STORAGE_KEY = 'hustlers-logbook-v1';
 
 /* Is persistence actually available? Private-browsing modes and a
    handful of locked-down webviews expose localStorage but throw on
@@ -4051,7 +4062,7 @@ function renderBottomNav(active){
   // the RESPONSIVE SHELL CSS block for why that guess was the bug.
   mountSideRail(active);
   return `<button class="assist-toggle ${getAssistMode()?'active':''}" type="button" onclick="toggleAssistMode()" aria-label="${getAssistMode()?'Turn off':'Turn on'} Assist Mode" aria-pressed="${getAssistMode()}">${icon('accessibility',20)}</button><div class="bottom-tabs bottom-tabs-4">
-    ${NAV_ITEMS.map(t=>`<button class="${active===t.id?'active':''}" onclick="nav('${t.id}')">${icon(t.icon,19)}${t.label}</button>`).join('')}
+    ${NAV_ITEMS.map(t=>`<button class="${active===t.id?'active':''}" onclick="nav('${t.id}')" aria-label="${esc(t.label)}"${active===t.id?' aria-current="page"':''}>${icon(t.icon,24)}</button>`).join('')}
   </div>`;
 }
 /* Tablet-landscape / desktop nav. Lives in #side-rail-mount, a
@@ -7111,7 +7122,7 @@ function renderSettings(){
         <div class="lni" style="background:var(--accent-soft); color:var(--red);">${icon('info',18)}</div>
         <div><b>This browser isn't saving</b>Private browsing (or a storage block) is stopping ${esc(BRAND.name)} from keeping your entries. Anything you log now is lost when you close the tab. Download a backup before you do.</div>
       </div>` }
-      ${window.APP_TEST_MODE ? renderTestTimeSection() : ''}
+      
 
       <div class="settings-section">
         <div class="settings-heading">Your setup</div>
@@ -7186,57 +7197,6 @@ function renderSettings(){
    a slider covering the full day plus quick-jump buttons for
    every timetable hour.
    ============================================================ */
-function renderTestTimeSection(){
-  const real = new Date();
-  const overrideMins = getDebugTimeMinutes();
-  const active = overrideMins !== null;
-  const mins = active ? overrideMins : (real.getHours()*60 + real.getMinutes());
-  const label = minutesToClockLabel(mins);
-  const blocks = normalizeTimetableBlocks();
-
-  const quickJumps = blocks.map((b,i)=>{
-    const slotStart = timeStrToMinutes(b.time);
-    const on = active && currentTimetableSlotIndex(nowForApp())===i;
-    const mapped = getSlotMapping(b.time);
-    return `<button class="test-jump-chip ${on?'active':''}" onclick="setDebugTimeMinutes(${slotStart}); render();">
-      ${esc(fmtBlockTime(b.time))}${mapped?' •':''}
-    </button>`;
-  }).join('');
-
-  return `
-    <div class="settings-section test-time-section">
-      <div class="settings-heading">Test tools <span class="test-badge">test mode</span></div>
-      <div class="test-time-card">
-        <div class="test-time-row">
-          <div class="test-time-display">${active?'Simulated':'Live'} time</div>
-          <div class="test-time-value" id="test-time-live-label">${esc(label)}</div>
-        </div>
-        <input type="range" class="test-time-slider" min="0" max="1439" step="5" value="${mins}"
-          oninput="setDebugTimeMinutes(this.value); document.getElementById('test-time-live-label').textContent = minutesToClockLabel(this.value);">
-        <div class="test-jump-row">${quickJumps}</div>
-        <button class="add-row-btn" onclick="setDebugTimeMinutes(null); render();" ${active?'':'disabled'}>
-          ${icon('history',13)} Back to real clock
-        </button>
-      </div>
-      <div class="test-time-card" style="margin-top:10px;">
-        <div class="fc-hint" style="margin:0 0 10px;">Backfills ${monthLabel()} with random dashboard/workout/reading/journal${DB.lane?'/lane':''} entries — days you've already logged are left untouched. Only for previewing how the Monthly Tracker charts look with data in them.</div>
-        <button class="add-row-btn" onclick="randomFillMonth(currentMonthKey())">${icon('grid',13)} Fill ${monthLabelShort()} with test data</button>
-        <button class="add-row-btn" style="color:var(--red);" onclick="confirmClearMonthData()">${icon('trash',13)} Clear ${monthLabelShort()}'s test data</button>
-      </div>
-    </div>
-  `;
-}
-function confirmClearMonthData(){
-  const mk = currentMonthKey();
-  openSheet(`
-    <div class="sheet-title"><span>Clear ${esc(monthLabel(mk))}?</span><button class="sheet-close" onclick="closeSheet()" aria-label="Close">${icon('close',15)}</button></div>
-    <div class="confirm-body">
-      <p>Deletes every day logged this month — test data and real entries alike, since there's no way to tell them apart after the fact. This can't be undone.</p>
-      <button class="confirm-danger-btn" onclick="closeSheet(); clearMonthData('${mk}');">${icon('trash',15)} Clear the month</button>
-      <button class="confirm-cancel-btn" onclick="closeSheet()">Cancel</button>
-    </div>
-  `);
-}
 function minutesToClockLabel(mins){
   mins = Math.max(0, Math.min(1439, Math.round(+mins)));
   const h24 = Math.floor(mins/60), m = mins%60;
@@ -7249,11 +7209,6 @@ function minutesToClockLabel(mins){
 // rendering on every drag tick would fight the slider's own DOM
 // node mid-drag. onchange (fires on release) does the full render;
 // oninput just keeps the live label in the settings screen honest.
-document.addEventListener('change', (e)=>{
-  if(e.target && e.target.classList && e.target.classList.contains('test-time-slider')){
-    render();
-  }
-});
 
 function openEraseConfirm(){
   openSheet(`
@@ -7728,10 +7683,6 @@ function bxBoxName(id){ return bxBoxMeta(id).name; }
         <button class="settings-row" onclick="nav('boxes')">
           <div><div class="sr-name">Boxes &amp; fields</div><div class="sr-desc">${nBoxes} custom box${nBoxes===1?'':'es'} — rename, remove or add fields to any box</div></div>
           <div class="sr-ico">${icon('layers',16)}</div>
-        </button>
-        <button class="settings-row" onclick="nav('widgets')">
-          <div><div class="sr-name">Widget Preview</div><div class="sr-desc">Mockup of home-screen widgets — native app only</div></div>
-          <div class="sr-ico">${icon('widgets',16)}</div>
         </button>
       </div>`);
   };
@@ -8643,111 +8594,6 @@ function bxFillCustom(mk){
 }
 
 
-/* ============================================================
-   UPGRADE SCREEN — identical in all 7 logbooks.
-
-   Uses only components that already exist in this app (home hero,
-   field card, onboarding CTA button, "all done" badge, settings row)
-   and the brand/palette from window.LOGBOOK. No new CSS.
-
-   ENTITLEMENT
-   DB.unlocked is the single flag. It is a plain boolean for now:
-   false = show the paywall, true = show the "Unlocked" state.
-   It must be set by a purchase-verification step (the matching PDF
-   purchase, or a StoreKit transaction) — never by the UI itself.
-   It survives "Erase everything" and is NOT taken from a restored
-   backup file, because the store decides entitlement, not a JSON file.
-
-   PRICING (same as web)
-   Own        $7 one time
-   Subscribe  $2 / month
-   ============================================================ */
-const UPGRADE_PRICES = {
-  own:       { name:'Own',       price:'$7', unit:'one time', hint:'Pay once. Yours to keep.',        cta:'Own it · $7' },
-  subscribe: { name:'Subscribe', price:'$2', unit:'/ month',  hint:'Billed monthly. Cancel any time.', cta:'Subscribe · $2/month' },
-};
-
-/* ----------------------------------------------------------------
-   PLACEHOLDER — NATIVE DEVELOPER: START HERE.
-   Both buttons on the Upgrade screen call this with:
-     type === 'own'        one-time, non-consumable in-app purchase
-     type === 'subscribe'  auto-renewing subscription
-   Real implementation on iOS is StoreKit / In-App Purchase (not a card
-   form). When a transaction is verified, set DB.unlocked = true, call
-   saveDB(), then render() so the screen flips to its Unlocked state.
-   ---------------------------------------------------------------- */
-function handlePurchase(type) { /* TODO: wire to StoreKit */ }
-
-function renderUpgrade(){
-  const unlocked = DB.unlocked === true;
-  const hero = `
-    <div class="home-hero" style="margin:0 0 16px;">
-      <p class="brand">${esc(BRAND.wordmark)}</p>
-      <h2 class="headline" style="margin-bottom:0;">${unlocked ? esc(BRAND.shortName||BRAND.name) : 'Unlock ' + esc(BRAND.shortName||BRAND.name)}</h2>
-    </div>`;
-  let body;
-  if(unlocked){
-    body = `
-      <div class="field-card">
-        <div class="nextup-alldone">
-          <span class="ok-badge">${icon('check',18)}</span>
-          <div>
-            <div class="nextup-title">Unlocked</div>
-            <div class="nextup-sub">Thanks for your purchase. ${esc(BRAND.name)} is unlocked on this device — nothing more to buy.</div>
-          </div>
-        </div>
-      </div>`;
-  } else {
-    const opt = key => {
-      const o = UPGRADE_PRICES[key];
-      return `
-        <div class="field-card">
-          <div class="fc-label">${esc(o.name)}</div>
-          <div class="fc-hint">${esc(o.hint)}</div>
-          <div class="nextup-title" style="font-size:30px;margin:2px 0 14px;">${esc(o.price)} <span class="nextup-sub" style="font-family:var(--font-body);font-weight:600;font-size:13px;">${esc(o.unit)}</span></div>
-          <button class="onboard-cta" onclick="handlePurchase('${key}')">${esc(o.cta)} ${icon('chevright',16)}</button>
-        </div>`;
-    };
-    body = `
-      <p class="onb-sub" style="margin-bottom:14px;">Two ways to unlock ${esc(BRAND.name)}. Pick whichever suits you.</p>
-      ${opt('own')}
-      ${opt('subscribe')}`;
-  }
-  app.innerHTML = `
-    ${renderTopbar('Upgrade', true)}
-    <div class="page-body">
-      ${hero}
-      ${body}
-    </div>
-    <div class="gap-block"></div>`;
-}
-
-(function upgradeHook(){
-  const _render = render;
-  render = function(){
-    if(DB.onboarded && ROUTE.view === 'upgrade'){ clearSideRail(); renderUpgrade(); return; }
-    _render();
-  };
-
-  const _renderSettings = renderSettings;
-  renderSettings = function(){
-    _renderSettings();
-    const first = app.querySelector('.settings-section');
-    if(!first) return;
-    const unlocked = DB.unlocked === true;
-    first.insertAdjacentHTML('beforebegin', `
-      <div class="settings-section">
-        <div class="settings-heading">${unlocked ? 'Your plan' : 'Upgrade'}</div>
-        <button class="settings-row" onclick="nav('upgrade')">
-          <div>
-            <div class="sr-name">${unlocked ? 'Unlocked' : 'Upgrade'}</div>
-            <div class="sr-desc">${unlocked ? 'Thanks for your purchase' : 'Own for $7 one time, or subscribe for $2/month'}</div>
-          </div>
-          <div class="sr-ico">${icon(unlocked ? 'check' : 'bolt', 16)}</div>
-        </button>
-      </div>`);
-  };
-})();
 
 /* ============================================================
    ROUTER
@@ -10079,6 +9925,7 @@ if(LAYOUT_MQ){
       if(n==null) return spec.def!=null ? spec.def : k.def;
       n = n + dir*step;
       if(k.wrap) return ((n%1440)+1440)%1440;
+      if(n - dir*step > hi) return Math.max(lo, n);   /* a number you typed above the usual top: + / - move it by one step, never snap it down to the top */
       return Math.max(lo, Math.min(hi, n));
     }
 
@@ -10407,7 +10254,7 @@ if(LAYOUT_MQ){
     document.addEventListener('pointercancel', function(){ endRep(false); });
     document.addEventListener('contextmenu', function(e){ if(e.target.closest && e.target.closest('.ui-sbtn')) e.preventDefault(); });
 
-    window.UI = { specs:S, workoutPresets:[], parseMulti:parseMulti, buildMulti:buildMulti, parseLog:parseLog, quickAdd:QUICK_ADD, kinds:KIND, justCls:justCls, picks:PICK };
+    window.UI = { specFor:specFor, specs:S, workoutPresets:[], parseMulti:parseMulti, buildMulti:buildMulti, parseLog:parseLog, quickAdd:QUICK_ADD, kinds:KIND, justCls:justCls, picks:PICK };
   }catch(e){ if(window.console) console.error('tap-first inputs', e); }
 })();
 </script>
@@ -10630,6 +10477,7 @@ if(LAYOUT_MQ){
     function stateOf(){ var o = {}; SH.secs.forEach(function(s){ o[s.id] = (s.num||s.date) ? s.val : s.sel.slice(); }); return o; }
     function fmtN(n){ n = Number(n); if(!isFinite(n)) return '0'; return Math.abs(n-Math.round(n))<1e-9 ? String(Math.round(n)) : String(Math.round(n*10)/10); }
     function secHtml(s, si){
+      if(s.hide && s.hide(stateOf())) return '';   /* a step that only makes sense after an earlier answer (hidden until then) */
       var h = '<div class="ls-sec">' + (s.label ? '<div class="ls-lab">'+E(s.label)+'</div>' : '');
       if(s.num){
         var n = s.num, big = n.step*10;
@@ -12019,7 +11867,7 @@ if(LAYOUT_MQ){
     function footer(){
       if(typeof ROUTE==='undefined' || ROUTE.view!=='lanelog') return '';
       var h = '';
-      if(HUST) h += '<button class="add-row-btn" onclick="nav(\'page\',\'lane\')">'+icon('chevleft',14)+' Change business lane</button>';
+      if(HUST) h += '<button class="add-row-btn" onclick="nav(\'page\',\'lane\')">'+icon('chevleft',14)+' All businesses</button>';
       if(DB.lane && isCustom(DB.lane)) h += '<button class="add-row-btn" data-ln="edit" data-id="'+E(DB.lane)+'">'+icon('gear',14)+' Edit this '+NOUN+'</button>';
       return h;
     }
@@ -14370,17 +14218,11 @@ if(LAYOUT_MQ){
     var base = window.finishBox;
     function money(n){ return (n<0?'-$':'$')+Math.abs(Math.round(n*100)/100).toLocaleString('en-US'); }
     function laneName(){ try{ var l = (typeof LANES!=='undefined' ? LANES : []).filter(function(x){ return x.id===DB.lane; })[0]; return l ? l.name : ''; }catch(e){ return ''; } }
+    /* on Finish: the Income Streams page is brought up to date (one shared routine in c6) and you are told the month so far */
     function syncLane(ds){
-      if(typeof laneValueForDay!=='function' || !DB.lane || typeof datesInMonth!=='function' || typeof getMonthlyPage!=='function') return;
-      var name = laneName(); if(!name) return;
-      var mk = ds.slice(0,7), tot = 0;
-      datesInMonth(mk).forEach(function(d){ tot += (laneValueForDay(d)||0); });
-      tot = Math.round(tot*100)/100;
-      var pg = getMonthlyPage('income', mk); if(!Array.isArray(pg.streams)) pg.streams = [];
-      var s = pg.streams.filter(function(x){ return String(x.name||'').trim().toLowerCase()===name.toLowerCase(); })[0];
-      if(!s){ if(!tot) return; s = { name:name, current:'', target:'', next:'', status:'Active', auto:1 }; pg.streams.push(s); }
-      s.current = String(tot); saveDB();
-      flashSaved(name+': '+money(tot)+' this month, now in Income Streams');
+      if(!window.C6 || !window.BIZ || !DB.lane) return;
+      var mk = ds.slice(0,7); C6.syncIncome(mk);
+      var name = laneName(); if(name) flashSaved(name+': '+money(BIZ.month(mk, DB.lane).total)+' this month, now in Income Streams');
     }
     /* TIME OF A BOX (Cycle 5). The clock starts the first time you do anything in today's box (add a move, tick a set, type a value).
        When you press Finish, the box's time field is filled for you if it is empty (a typed value always wins):
@@ -14443,177 +14285,6 @@ if(LAYOUT_MQ){
     };
     window.XBOX = { syncLane:syncLane, fillTime:fillTime };
   }catch(e){ if(window.console) console.error('xbox', e); }
-})();
-</script>
-<script>
-/* =====================================================================================================
-   WIDGET PREVIEW, LIVELIER  (Bot A, task 5)
-   -----------------------------------------------------------------------------------------------------
-   The Widget Preview screen showed plain white cards. This gives the same four mock-ups (log small/medium,
-   data small/medium) the look of the Home hero: your theme's gradient, a glowing box icon, a ring that
-   fills, a flame streak chip, and a row of dots for the last 7 days.
-   It is still only a preview, drawn from your real data. Nothing is saved or changed.
-   ===================================================================================================== */
-(function(){
-  try{
-    if(typeof bxLogWidget !== 'function' || typeof bxDataWidget !== 'function') return;
-
-    var css = ''
-    + '.bx-widget.bxw{border:none;color:var(--accent-ink);background:radial-gradient(circle at 100% 0%,rgba(255,255,255,.26),transparent 46%),radial-gradient(circle at 0% 100%,rgba(255,255,255,.14),transparent 46%),linear-gradient(155deg,var(--hero-from) 0%,var(--hero-via) 55%,var(--hero-to) 100%);box-shadow:var(--shadow-lg);}'
-    + '.bxw .wl,.bxw .ws,.bxw .wkv span:first-child{color:inherit;opacity:.82;}'
-    + '.bxw .wkv span:last-child{color:inherit;}'
-    + '.bxw .wn,.bxw .wq,.bxw .wbig{color:inherit;}'
-    + '.bxw .wbig small{color:inherit;opacity:.75;}'
-    + '.bxw-ico{width:40px;height:40px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,.22);box-shadow:0 0 0 5px rgba(255,255,255,.1),0 6px 18px rgba(0,0,0,.18);flex:none;color:inherit;}'
-    + '.bxw-ico svg{stroke:currentColor;}'
-    + '.bxw-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}'
-    + '.bxw-name{font-family:var(--font-display);font-weight:800;font-size:15px;line-height:1.15;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}'
-    + '.bxw-chip{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.2);font-size:11.5px;font-weight:800;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}'
-    + '.bxw-chip.done{background:rgba(255,255,255,.92);color:#17724A;}'
-    + '.bxw-chip i{width:8px;height:8px;border-radius:50%;background:#fff;animation:bxwPulse 1.6s ease-in-out infinite;flex:none;}'
-    + '.bxw-streak{display:inline-flex;align-items:center;gap:4px;padding:4px 9px 4px 7px;border-radius:999px;background:rgba(0,0,0,.2);font-weight:800;font-size:12px;}'
-    + '.bxw-streak svg{width:14px;height:14px;stroke:none;fill:#FFC53D;}'
-    + '.bxw-dots{display:flex;gap:5px;align-items:center;}'
-    + '.bxw-dots i{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.28);}'
-    + '.bxw-dots i.on{background:#fff;box-shadow:0 0 8px rgba(255,255,255,.7);}'
-    + '.bxw-dots i.today{outline:2px solid rgba(255,255,255,.7);outline-offset:2px;}'
-    + '.bxw-ring{position:relative;flex:none;}'
-    + '.bxw-ring svg{display:block;transform:rotate(-90deg);overflow:visible;}'
-    + '.bxw-ring .t{fill:none;stroke:rgba(255,255,255,.28);}'
-    + '.bxw-ring .f{fill:none;stroke:#fff;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(255,255,255,.55));animation:bxwDraw 1.1s cubic-bezier(.2,.8,.2,1) both;}'
-    + '.bxw-ring b{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:800;line-height:1;}'
-    + '.bxw-ring b small{font-size:9.5px;opacity:.8;font-weight:800;letter-spacing:.04em;margin-top:2px;text-transform:uppercase;}'
-    + '.bxw-bars{display:flex;gap:3px;align-items:flex-end;height:36px;}'
-    + '.bxw-bars i{flex:1;min-width:2px;border-radius:3px;background:rgba(255,255,255,.22);transform-origin:bottom;animation:bxwGrow .6s cubic-bezier(.2,.8,.2,1) both;}'
-    + '.bxw-bars i.on{background:#fff;box-shadow:0 0 8px rgba(255,255,255,.5);}'
-    + '.bx-w-m .wsplit{gap:12px;}'
-    + '@keyframes bxwDraw{from{stroke-dashoffset:var(--c)}}'
-    + '@keyframes bxwGrow{from{transform:scaleY(.1);opacity:0}}'
-    + '@keyframes bxwPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}'
-    + '@media (prefers-reduced-motion:reduce){.bxw-chip i,.bxw-ring .f,.bxw-bars i{animation:none!important}}';
-    var st = document.createElement('style'); st.id = 'widgets-extra'; st.textContent = css; document.head.appendChild(st);
-
-    function ringSvg(done, total, size, stroke, center, label){
-      var R = (size - stroke)/2, C = 2*Math.PI*R, frac = total ? Math.min(1, done/total) : 0, off = C*(1-frac);
-      return '<div class="bxw-ring" style="width:'+size+'px;height:'+size+'px" role="img" aria-label="'+esc(label||'')+'"><svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'
-        + '<circle class="t" cx="'+size/2+'" cy="'+size/2+'" r="'+R+'" stroke-width="'+stroke+'"/>'
-        + '<circle class="f" cx="'+size/2+'" cy="'+size/2+'" r="'+R+'" stroke-width="'+stroke+'" stroke-dasharray="'+C+'" stroke-dashoffset="'+off+'" style="--c:'+C+'"/></svg>'
-        + '<b>'+center+'</b></div>';
-    }
-    function weekDots(){
-      var h = '<div class="bxw-dots" aria-hidden="true">';
-      for(var i=6;i>=0;i--){ var d = new Date(); d.setDate(d.getDate()-i); var ds = localDateStr(d);
-        h += '<i class="'+(dayHasAny(ds)?'on':'')+(i===0?' today':'')+'"></i>'; }
-      return h+'</div>';
-    }
-    function streakChip(){ var n = DB.streak||0; return '<span class="bxw-streak">'+icon('flame',14)+n+'</span>'; }
-
-    bxLogWidget = function(size){
-      var p = bxPinned(), k = bxDayCounts(), t = todayStr(), cls = (size==='s' ? 'bx-w-s' : 'bx-w-m')+' bxw';
-      var label = k.done+' of '+k.total+' boxes done today';
-      if(!p.id){
-        if(size==='s') return '<div class="bx-widget '+cls+'"><div class="bxw-top"><div class="wl">'+esc(p.timeLabel)+'</div>'+streakChip()+'</div><div class="wq">“'+esc(p.quote)+'”</div><div class="ws">'+k.done+' of '+k.total+' done</div></div>';
-        return '<div class="bx-widget '+cls+'"><div class="wsplit"><div class="l"><div class="wl">'+esc(p.timeLabel)+' · nothing pinned</div><div class="wq">“'+esc(p.quote)+'”</div>'+weekDots()+'</div><div class="r">'+ringSvg(k.done,k.total,72,8,k.done+'/'+k.total,label)+streakChip()+'</div></div></div>';
-      }
-      var m = bxBoxMeta(p.id), done = pageIsDone(t, p.id), status = done ? doneSummary(t, p.id) : 'Not logged yet';
-      var chip = '<div class="bxw-chip'+(done?' done':'')+'">'+(done ? icon('check',12)+' ' : '<i></i>')+esc(done ? (size==='s' ? 'Logged' : status) : 'Tap to log')+'</div>';
-      var kv = '';
-      if(size==='m' && bxIsBox(p.id)){
-        var c = bxCfg(p.id), pg = (DB.days[t] && DB.days[t].pages[p.id]) || {};
-        kv = c.fields.filter(function(f){ return !f.deleted; }).slice(0,2).map(function(f){ return '<div class="wkv"><span>'+esc(f.label)+'</span><span>'+esc(bxDisplay(f, pg['cf_'+f.id]) || '—')+'</span></div>'; }).join('');
-      }
-      var ico = '<span class="bxw-ico">'+icon(m.icon,20)+'</span>';
-      if(size==='s') return '<div class="bx-widget '+cls+'"><div class="bxw-top">'+ico+ringSvg(k.done,k.total,40,5,'<span style="font-size:11px">'+k.done+'/'+k.total+'</span>',label)+'</div><div><div class="bxw-name">'+esc(m.name)+'</div>'+chip+'</div></div>';
-      return '<div class="bx-widget '+cls+'"><div class="wsplit"><div class="l"><div class="bxw-top" style="justify-content:flex-start;align-items:center;gap:10px">'+ico+'<div class="bxw-name">'+esc(m.name)+'</div></div><div>'+chip+kv+'</div><div style="display:flex;align-items:center;gap:10px"><span class="wl">Pinned · '+esc(p.timeLabel)+'</span></div></div>'
-        + '<div class="r">'+ringSvg(k.done,k.total,72,8,k.done+'/'+k.total+'<small>today</small>',label)+streakChip()+'</div></div></div>';
-    };
-
-    bxDataWidget = function(size){
-      var s = bxPeriodStats(), pct = s.elapsed ? Math.round(s.logged/s.elapsed*100) : 0, cls = (size==='s' ? 'bx-w-s' : 'bx-w-m')+' bxw';
-      var unit = BX_WPERIOD==='year' ? 'year' : 'month', label = s.logged+' of '+s.elapsed+' days logged';
-      if(size==='s') return '<div class="bx-widget '+cls+'"><div class="bxw-top"><div class="wl">'+esc(s.label)+'</div>'+streakChip()+'</div>'
-        + '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:8px"><div><div class="wbig">'+pct+'<small>%</small></div><div class="ws">'+s.logged+' of '+s.elapsed+' '+(s.elapsed===1?'day':'days')+'</div></div></div></div>';
-      return '<div class="bx-widget '+cls+'"><div class="wsplit"><div class="l"><div class="wl">'+esc(s.label)+' · this '+unit+'</div>'
-        + '<div><div class="wbig">'+s.logged+'<small>/'+s.elapsed+' '+(s.elapsed===1?'day':'days')+'</small></div></div>'
-        + '<div class="bxw-bars" aria-hidden="true">'+s.bars.map(function(b,i){ return '<i class="'+(b.on?'on':'')+'" style="height:'+b.h+'%;animation-delay:'+Math.min(i*18,500)+'ms"></i>'; }).join('')+'</div></div>'
-        + '<div class="r">'+ringSvg(s.logged,s.elapsed,72,8,pct+'%',label)+streakChip()+'</div></div></div>';
-    };
-  }catch(e){ if(window.console) console.error('widgets', e); }
-})();
-</script>
-<script>
-/* Test mode: an in-app switch between your real data and a separate test copy.
-   It never changes how the app looks. Real data lives under the normal key, test data under "<key>-test". */
-(function(){
-  try{
-    var MODE_KEY = "hustlers-logbook-v1" + '-mode';
-    var VISIBLE = true;
-    var isTest = !!window.APP_TEST_MODE;
-    if(isTest && document.title.indexOf('TEST')!==0) document.title = 'TEST \u00b7 ' + document.title;
-    function setMode(on){ try{ if(on) localStorage.setItem(MODE_KEY,'test'); else localStorage.removeItem(MODE_KEY); }catch(e){} location.reload(); }
-    function sheet(title, text, label, action, accent){
-      openSheet('<div class="sheet-title"><span>'+title+'</span><button class="sheet-close" onclick="closeSheet()" aria-label="Close">'+icon('close',15)+'</button></div>'
-        + '<div class="confirm-body"><p>'+text+'</p>'
-        + '<button class="confirm-danger-btn" '+(accent?'style="background:var(--accent);" ':'')+'onclick="'+action+'">'+label+'</button>'
-        + '<button class="confirm-cancel-btn" onclick="closeSheet()">Cancel</button></div>');
-    }
-    window.toggleTestMode = function(){
-      if(!isTest) sheet('Switch to test mode?', 'You will use a separate copy of this app. Your real data is not touched, and you can switch back any time.', 'Switch to test mode', 'testSetMode(true)', true);
-      else sheet('Back to your real data?', 'Your test data stays saved for next time.', 'Use my real data', 'testSetMode(false)', true);
-    };
-    window.testSetMode = function(on){ setMode(on); };
-    var rwFlip = false;
-    window.testRewardPreview = function(){ if(window.REWARD){ REWARD.play(rwFlip ? 'day' : 'box'); rwFlip = !rwFlip; } };
-    window.testFillYear = function(){
-      /* randomFillMonth saves, recomputes the streak and redraws on every single entry (1,600+ times for a year).
-         Hold all three still while filling, then do each once at the end. */
-      var _save = saveDB, _rec = recomputeStreak, _flash = flashSaved, _render = render;
-      saveDB = function(){ return true; }; recomputeStreak = function(){}; flashSaved = function(){}; render = function(){};
-      try{ return fillYear(); } finally { saveDB = _save; recomputeStreak = _rec; flashSaved = _flash; render = _render; finish(); }
-      function finish(){
-        recomputeStreak();
-        var ok = saveDB();
-        flashSaved(ok ? 'Filled '+window.__testFilled+' days of test data' : "Couldn't save \u2014 storage may be full");
-        render();
-      }
-    };
-    function fillYear(){
-      var now = new Date(), total = 0, i;
-      for(i=12;i>=0;i--){ var d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-        total += randomFillMonth(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')) || 0; }
-      /* one custom box with a year of data, so the custom-box charts have something to show */
-      try{
-        var b = bxDB(), id = 'cx_testbox', from = localDateStr(new Date(now.getFullYear(), now.getMonth()-12, 1));
-        if(!b.boxes[id]){ b.boxes[id] = { id:id, custom:true, name:'Test Box', icon:null, from:from, until:null, order:90, labels:{}, hidden:{}, fields:[
-          {id:'reps', label:'Reps', type:'number', unit:'x', icon:null, created:from, deleted:null},
-          {id:'mood', label:'Mood', type:'scale', max:5, icon:null, created:from, deleted:null},
-          {id:'done', label:'Done', type:'toggle', icon:null, created:from, deleted:null}] }; }
-        /* write straight into the pages and save once: the normal setters save + redraw on every single call */
-        for(var k=0;k<=370;k++){ if(Math.random()<0.7){ var ds = localDateStr(new Date(now.getTime()-k*864e5)), pg = getPage(ds,id);
-          pg.cf_reps = 8+Math.floor(Math.random()*12); pg.cf_mood = 1+Math.floor(Math.random()*5); pg.cf_done = Math.random()<0.6;
-          pg._touched = true; pg._touchedAt = Date.now(); } }
-      }catch(e){}
-      window.__testFilled = total;
-    }
-    window.testClearAsk = function(){ sheet('Clear test data?', 'Only the test copy is cleared. Your real data is not touched.', 'Clear test data', 'testClearData()', false); };
-    window.testClearData = function(){ if(!isTest) return; try{ localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(ONBOARD_KEY); }catch(e){} location.reload(); };
-
-    var baseSettings = renderSettings;
-    renderSettings = function(){
-      baseSettings();
-      var show = VISIBLE || isTest || location.search.indexOf('testtools')>=0;
-      var host = document.querySelector('#app .page-body');
-      if(!show || !host) return;
-      var row = function(name, desc, fn){ return '<button class="settings-row" onclick="'+fn+'"><div><div class="sr-name">'+name+'</div><div class="sr-desc">'+desc+'</div></div><div class="sr-ico">'+icon('bolt',16)+'</div></button>'; };
-      var html = '<div class="settings-section"><div class="settings-heading">Testing</div>'
-        + row('Preview finish animation', 'Plays the \u201Cbox done\u201D celebration (tap again for the \u201Cday complete\u201D one)', 'testRewardPreview()')
-        + row('Test mode', isTest ? 'On \u2014 using a separate test copy of the data' : 'Off \u2014 using your real data', 'toggleTestMode()')
-        + (isTest ? row('Fill a year of random data', 'Last 13 months plus a custom box \u2014 test copy only', 'testFillYear()') + row('Clear test data', 'Wipes only the test copy', 'testClearAsk()') : '')
-        + '</div>';
-      host.insertAdjacentHTML('beforeend', html);
-    };
-    if(location.hash==='#settings' || (window.ROUTE && ROUTE.view==='settings')) render();
-  }catch(e){ if(window.console) console.error('test mode', e); }
 })();
 </script>
 <script>
@@ -15259,7 +14930,8 @@ if(LAYOUT_MQ){
     if(!mine.length) return '';
     return '<div class="lk-card"><div class="lk-h">'+icon('link',14)+' Linked in</div>' + mine.map(function(x){
       return '<div class="lk-row'+(x.done?' done':'')+'"><button type="button" class="lk-tick" data-lk="tick" data-id="'+E(x.id)+'" aria-label="'+(x.done?'Untick':'Tick')+'">'+icon('check',15)+'</button>'
-        + '<div class="lk-t"><b>'+E(x.text)+'</b><small>from '+E(boxName(x.from))+(x.srcDs && x.srcDs!==ds ? ', '+E(dayWord(x.srcDs)) : '')+'</small></div>'
+        + '<div class="lk-t"><b>'+E(x.text)+'</b><small>from '+E(boxName(x.from))+(x.srcDs && x.srcDs!==ds ? ', '+E(dayWord(x.srcDs)) : '')+'</small>'
+        + (x.fill && x.fill.length ? (x.filled ? '<small class="lk-fd">'+icon('check',11)+' Filled in</small>' : '<button type="button" class="lk-fill" data-lk="fill" data-id="'+E(x.id)+'">'+icon('link',13)+' Fill in '+x.fill.length+' field'+(x.fill.length===1?'':'s')+': '+E(x.fill.map(function(f){ return f.label; }).slice(0,3).join(', '))+'</button>') : '') + '</div>'
         + '<button type="button" class="lk-x" data-lk="rm" data-id="'+E(x.id)+'" aria-label="Remove link">'+icon('close',13)+'</button></div>';
     }).join('') + '</div>';
   }
@@ -15283,6 +14955,44 @@ if(LAYOUT_MQ){
     if(day==='Today') list = list.filter(function(b){ return b.id!==id; });
     return list.map(function(b){ return { id:b.id, label: b.id===id ? boxName(b.id)+' (this box again)' : boxName(b.id) }; });
   }
+  /* CROSS-FILL. A link can also carry "fill the same fields": values typed in this box that can be dropped into the SAME field of the linked box.
+     Same box (tomorrow again): every field you filled. Another box: only fields it also has (same field name, or a custom field with the same label).
+     The link stores which fields (not the values): the values are read from the source box when you tap "Fill in", so they are always current.
+     Fill in never overwrites: a field that already has something is skipped. */
+  function humanKey(k){ return String(k).replace(/^cf_/,'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/^./, function(c){ return c.toUpperCase(); }); }
+  function okVal(v){ return (typeof v==='string' && v.trim() && v.length<=120) || (typeof v==='number' && isFinite(v)) || v===true; }
+  function cfFields(id){ try{ var c = bxCfg(id); return (c && c.fields ? c.fields : []).filter(function(f){ return f && !f.deleted; }); }catch(e){ return []; } }
+  function fillCands(ds, from, to){
+    var pg = getPage(ds, from), out = [], same = from===to, specs = (window.UI && UI.specs) || {};
+    var srcCf = cfFields(from), dstCf = cfFields(to);
+    Object.keys(pg).forEach(function(k){
+      if(k.charAt(0)==='_' || !okVal(pg[k])) return;
+      var tk = null, label = humanKey(k);
+      if(k.indexOf('cf_')===0){
+        var sf = srcCf.filter(function(f){ return 'cf_'+f.id===k; })[0]; if(sf){ label = sf.label || label;
+          if(same) tk = k; else { var df = dstCf.filter(function(f){ return String(f.label||'').toLowerCase()===String(sf.label||'').toLowerCase() && f.type===sf.type; })[0]; if(df) tk = 'cf_'+df.id; } }
+      } else if(same || specs[to+'.'+k]) tk = k;
+      if(tk) out.push({ sk:k, tk:tk, label:label, v:pg[k] });
+    });
+    return out;
+  }
+  function showVal(v){ return v===true ? 'yes' : String(v).slice(0,18); }
+  function applyFill(x){
+    var done = 0, skipped = 0, src = getPage(x.srcDs, x.from), dst = getPage(x.ds, x.to);
+    (x.fill||[]).forEach(function(f){
+      var v = src[f.sk]; if(!okVal(v)) return;
+      var cur = dst[f.tk]; if(cur!=null && cur!=='' && cur!==false){ skipped++; return; }
+      dst[f.tk] = v; done++;
+    });
+    x.filled = true;
+    if(done){ markTouched(x.ds, x.to); }
+    saveDB();
+    try{ flashSaved(done ? 'Filled '+done+' field'+(done===1?'':'s')+(skipped ? ' ('+skipped+' already had something)' : '') : 'Nothing to fill: those fields already have something'); }catch(e){}
+  }
+  function candsFor0(ds, id, st){
+    var day = (st.day && st.day[0]) || 'Tomorrow', hit = st.to && st.to.length ? optsFor(ds, id, day).filter(function(o){ return o.label===st.to[0]; })[0] : null;
+    return hit ? fillCands(ds, id, hit.id) : [];
+  }
   function openSheet_(ds, id){
     if(!window.LISTS || !LISTS.openLS) return;
     if(!optsFor(ds, id, 'Today').length && !optsFor(ds, id, 'Tomorrow').length){ try{ flashSaved('Add another box first'); }catch(e){} return; }
@@ -15291,18 +15001,24 @@ if(LAYOUT_MQ){
     Object.keys(pg).forEach(function(k){ var v = pg[k]; if(k.charAt(0)!=='_' && typeof v==='string' && v.trim() && v.length<=40 && v.indexOf('\n')<0 && sug.length<3 && sug.indexOf(v.trim())<0) sug.push(v.trim()); });
     ['Do this again','Follow up on this','Check how it went','Remember this'].forEach(function(t){ if(sug.length<6 && sug.indexOf(t)<0) sug.push(t); });
     var me = boxName(id), exo = optsFor(ds, id, 'Tomorrow').filter(function(o){ return o.id!==id; })[0], exBox = exo ? exo.label : me;
+    function candsFor(st){ return candsFor0(ds, id, st); }
     LISTS.openLS({ title:'Link a reminder', needs:true,
       intro:function(){ return 'A link <b>pins a short note from '+E(me)+'</b> onto another box. Open that box on that day and the note is waiting at the top with a tick circle. Example: from <b>'+E(me)+'</b>, pin <i>Do this again</i> onto <b>'+E(exBox)+'</b> tomorrow.'; },
       secs:[ { id:'day', label:'1. When should it show up?', opts:['Today','Tomorrow'], sel:['Tomorrow'], other:false },
              { id:'to', label:'2. Which box should show it?', opts:function(st){ return optsFor(ds, id, st.day[0] || 'Tomorrow').map(function(o){ return o.label; }); }, sel:[], other:false },
-             { id:'txt', label:'3. What should the note say?', opts:sug, sel:[], other:true } ],
-      onChange:function(st, secs){ var ok = optsFor(ds, id, st.day[0] || 'Tomorrow').map(function(o){ return o.label; }); secs[1].sel = secs[1].sel.filter(function(v){ return ok.indexOf(v)>=0; }); },
+             { id:'txt', label:'3. What should the note say?', opts:sug, sel:[], other:true },
+             { id:'fill', label:'4. Fill the same fields too? (optional)', multi:true, other:false, sel:[], opts:function(st){ return candsFor(st).map(function(c){ return c.label+': '+showVal(c.v); }); },
+               hide:function(st){ return !candsFor(st).length; } } ],
+      onChange:function(st, secs){ var ok = optsFor(ds, id, st.day[0] || 'Tomorrow').map(function(o){ return o.label; }); secs[1].sel = secs[1].sel.filter(function(v){ return ok.indexOf(v)>=0; }); var fo = candsFor(st).map(function(c){ return c.label+': '+showVal(c.v); }); secs[3].sel = secs[3].sel.filter(function(v){ return fo.indexOf(v)>=0; }); },
       count:function(st){ var ok = st.to.length && optsFor(ds, id, st.day[0] || 'Tomorrow').some(function(o){ return o.label===st.to[0]; }); return (ok && st.txt.length) ? 1 : 0; },
       cta:function(st,n){ return n ? 'Pin “'+String(st.txt[0]).slice(0,28)+'” on '+st.to[0].replace(' (this box again)','')+' · '+(st.day[0]||'Tomorrow').toLowerCase() : 'Pick a box and what the note says'; },
       done:function(st){
         var day = st.day[0] || 'Tomorrow', hit = optsFor(ds, id, day).filter(function(o){ return o.label===st.to[0]; })[0]; if(!hit || !st.txt.length) return;
         var tds = day==='Today' ? ds : shift(ds, 1);
-        links().push({ id:'lk'+Date.now().toString(36)+Math.floor(Math.random()*1e3), from:id, to:hit.id, ds:tds, srcDs:ds, text:String(st.txt[0]).slice(0,80), done:false });
+        var picked = candsFor(st).filter(function(c){ return st.fill.indexOf(c.label+': '+showVal(c.v))>=0; }).map(function(c){ return { sk:c.sk, tk:c.tk, label:c.label }; });
+        var lk = { id:'lk'+Date.now().toString(36)+Math.floor(Math.random()*1e3), from:id, to:hit.id, ds:tds, srcDs:ds, text:String(st.txt[0]).slice(0,80), done:false };
+        if(picked.length) lk.fill = picked;
+        links().push(lk);
         saveDB(); try{ flashSaved('Pinned on '+boxName(hit.id)+' ('+day.toLowerCase()+')'); }catch(e){} render();
       } });
   }
@@ -15312,6 +15028,7 @@ if(LAYOUT_MQ){
     if(a==='add'){ e.preventDefault(); return openSheet_(b.getAttribute('data-ds'), b.getAttribute('data-box')); }
     var x = links().filter(function(y){ return y.id===id; })[0]; if(!x) return;
     if(a==='tick'){ x.done = !x.done; saveDB(); render(); }
+    if(a==='fill'){ applyFill(x); render(); }
     if(a==='rm'){ DB.links = links().filter(function(y){ return y.id!==id; }); saveDB(); render(); }
   });
   /* draw it: on each daily box page (card on top, button above Finish) and under the box shown on Home */
@@ -15319,8 +15036,8 @@ if(LAYOUT_MQ){
   render = function(){
     var out = baseR.apply(this, arguments);
     try{
-      if(typeof ROUTE!=='undefined' && DB.onboarded && ROUTE.view==='page'){
-        var id = ROUTE.pageId, ds = ROUTE.date || todayStr(), isDaily = boxesNow().some(function(b){ return b.id===id; });
+      if(typeof ROUTE!=='undefined' && DB.onboarded && (ROUTE.view==='page' || (ROUTE.view==='lanelog' && DB.lane))){
+        var id = ROUTE.view==='lanelog' ? 'lane' : ROUTE.pageId, ds = ROUTE.date || todayStr(), isDaily = boxesNow().some(function(b){ return b.id===id; });
         var pb = document.querySelector('#app .page-body');
         if(pb && isDaily && !pb.querySelector('.lk-card,.lk-foot')){
           purge();
@@ -15338,17 +15055,228 @@ if(LAYOUT_MQ){
   }
   window.BOXLINKS = { list:links, cardHtml:cardHtml };
 
-  var css = '.lk-help{margin:7px 4px 0;font-size:12px;line-height:1.4;color:var(--muted);text-align:center}.lk-card{background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 35%,transparent);border-radius:18px;padding:12px 14px;margin:0 0 14px}'
-    + '.lk-h{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}'
-    + '.lk-row{display:flex;align-items:center;gap:10px;padding:9px 0 3px}.lk-row+.lk-row{border-top:1px solid color-mix(in srgb,var(--accent) 18%,transparent);margin-top:6px}'
-    + '.lk-tick{flex:none;width:34px;height:34px;border-radius:50%;border:2.5px solid color-mix(in srgb,var(--ink) 30%,transparent);background:var(--surface);color:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation}'
-    + '.lk-row.done .lk-tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.lk-row.done .lk-t b{text-decoration:line-through;opacity:.55}'
-    + '.lk-t{flex:1;min-width:0}.lk-t b{display:block;font-size:14.5px;color:var(--ink);overflow-wrap:anywhere}.lk-t small{font-size:11.5px;color:var(--muted)}'
+  var css = '.lk-help{margin:7px 4px 0;font-size:12px;line-height:1.4;color:var(--muted);text-align:center}'
+    /* the reminder card: small and quiet. A thin accent edge, one line per note, a 20px tick (the finger target is bigger than what you see). */
+    + '.lk-card{background:var(--surface-2);border-left:3px solid var(--accent);border-radius:12px;padding:8px 6px 8px 12px;margin:0 0 12px}'
+    + '.lk-h{display:flex;align-items:center;gap:5px;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}'
+    + '.lk-row{display:flex;align-items:center;gap:4px;min-height:34px}.lk-row+.lk-row{border-top:1px solid var(--line)}'
+    + '.lk-tick{flex:none;width:34px;height:34px;margin-left:-8px;border:0;background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;color:transparent}'
+    + '.lk-tick svg{width:20px;height:20px;padding:4px;box-sizing:border-box;border-radius:50%;border:1.8px solid color-mix(in srgb,var(--ink) 35%,transparent)}'
+    + '.lk-row.done .lk-tick svg{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.lk-row.done .lk-t b{text-decoration:line-through;opacity:.5}'
+    + '.lk-t{flex:1;min-width:0}.lk-t b{display:block;font-size:13.5px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}.lk-t b{line-height:1.25}.lk-t small{display:block;font-size:11px;line-height:1.25;color:var(--muted)}'
     + '.lk-x{flex:none;width:30px;height:30px;border:0;border-radius:50%;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer}'
-    + '.lk-foot{margin:16px 0 4px}.lk-out{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--ink-soft);background:var(--surface-2);border-radius:12px;padding:6px 8px 6px 12px;margin-bottom:6px}.lk-out i{color:var(--muted);font-style:normal}.lk-out button{border:0;background:transparent;color:var(--muted);width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}'
+    + '.lk-fill{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin-top:4px;min-height:30px;padding:0 10px;border:1.5px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:999px;background:transparent;color:var(--accent);font:inherit;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lk-fd{display:flex;align-items:center;gap:4px;margin-top:2px;color:var(--muted)}'
+    + '.lk-foot{margin:16px 0 4px}.lk-out{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--ink-soft);background:var(--surface-2);border-radius:12px;padding:6px 8px 6px 12px;margin-bottom:6px}.lk-out i{color:var(--muted);font-style:normal}.lk-out button{border:0;background:transparent;color:var(--muted);cursor:pointer}'
     + '.lk-add{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:46px;border:1.5px dashed var(--line);border-radius:16px;background:transparent;color:var(--ink-soft);font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;touch-action:manipulation}';
   var st = document.createElement('style'); st.id = 'c5-css'; st.textContent = css; document.head.appendChild(st);
 }catch(e){ if(window.console) console.error('c5 patch', e); } })();
+</script>
+<script>
+/* =====================================================================================================
+   BUSINESSES + BUSINESS DASHBOARD (Hustler's and Canvas)
+
+   BEFORE: you picked ONE business lane. Switching lane threw the logs together (Car Wash revenue showed in Trading).
+   NOW:    you can run as many businesses as you like (Car Wash + Trading + your own...). Each keeps its OWN daily log.
+           The "Business" page is a dashboard: the month's money for all of them, one card per business with its own
+           numbers and a bar per day, "Log today" on each, and "Add a business".
+
+   HOW IT IS SAVED (old backups keep working)
+     DB.lanes      the businesses you run (list of ids)        DB.lane      the one you are looking at now
+     DB.laneMain   the first one: its days stay where they always were (day page "lane")
+     every other business keeps its days in a page called "lane@<id>".
+   All the old code still asks for the page "lane"; getPage() below quietly hands it the page of the business you are looking at.
+
+   Also in this file, from the "what is undone on the lane pages" check:
+     - the day's money now counts what the lane promised: Car Wash revenue + tips (or the sum of your jobs), Freelance billable x rate
+     - Car Wash gets the job log its card always promised (vehicle, service, price, tip) and "Hours worked"
+     - a "Counts as" line at the top of every lane log, so you see the number that goes into Income Streams
+     - Freelance shows your effective rate, Dropshipping your margin, Dropshipping a best-seller box
+   shortcut: one Finish button per day for all businesses (the day's "lane" box), not one each. Split it if you want per-business finishing.
+   ===================================================================================================== */
+(function(){ try{
+  if(typeof LANES==='undefined' || typeof LANE_FIELDS==='undefined' || !LANES.some(function(l){ return l.id==='TR'; })) return;
+  var E = esc, SP = window.UI && UI.specs;
+  function money(n){ n = Math.round((+n||0)*100)/100; return (n<0?'-$':'$') + Math.abs(n).toLocaleString('en-US'); }
+  function num(v){ var x = parseFloat(v); return isFinite(x) ? x : null; }
+
+  /* ---------- who runs what ---------- */
+  function list(){ if(!Array.isArray(DB.lanes)) DB.lanes = []; return DB.lanes; }
+  function sync(){
+    var L = list();
+    if(DB.lane && L.indexOf(DB.lane)<0) L.push(DB.lane);
+    if(!DB.laneMain && L.length) DB.laneMain = L[0];
+  }
+  function pageKey(id){ return (id && DB.laneMain && id!==DB.laneMain) ? 'lane@'+id : 'lane'; }
+  function meta(id){ return LANES.filter(function(l){ return l.id===id; })[0] || null; }
+  function pageOf(ds, id){ var d = DB.days[ds]; return (d && d.pages && d.pages[pageKey(id)]) || null; }
+  function hasData(p){
+    if(!p) return false;
+    return Object.keys(p).some(function(k){ var v = p[k]; if(k.charAt(0)==='_') return false; return Array.isArray(v) ? v.length>0 : (v!==''&&v!=null&&v!==false); });
+  }
+  function jobsSum(p, k){ return (Array.isArray(p.jobs) ? p.jobs : []).reduce(function(s,j){ return s + (num(j[k])||0); }, 0); }
+  /* the one "money moved" number for a day of one business */
+  function valueOf(p, id){
+    if(!p) return 0;
+    if(Array.isArray(p.trades) && p.trades.length) return p.trades.reduce(function(s,t){ return s + (num(t.pnl)||0); }, 0);
+    var net = num(p.netprofit); if(net!=null) return net;
+    var rev = num(p.revenue), tips = num(p.tips);
+    if(id==='CW'){
+      if(rev==null && jobsSum(p,'price')) rev = jobsSum(p,'price');
+      if(tips==null && jobsSum(p,'tip')) tips = jobsSum(p,'tip');
+      return (rev||0) + (tips||0);
+    }
+    if(id==='FR'){ if(rev!=null) return rev; var b = num(p.billable), r = num(p.rate); return (b!=null && r!=null) ? Math.round(b*r*100)/100 : 0; }
+    if(rev!=null){ var c = num(p.cx_costs); return c!=null ? rev - c : rev; }
+    return 0;
+  }
+  function month(mk, id){
+    var ds = datesInMonth(mk), t = todayStr(), rows = [], tot = 0, best = 0, logged = 0;
+    ds.forEach(function(d){
+      var ids = id ? [id] : (list().length ? list() : (DB.lane ? [DB.lane] : [])), v = 0, any = false;
+      ids.forEach(function(i){ var p = pageOf(d,i); if(hasData(p)) any = true; v += valueOf(p,i); });
+      if(any) logged++;
+      if(d<=t) tot += v;
+      rows.push({ ds:d, v:v, future:d>t });
+      if(v>best) best = v;
+    });
+    tot = Math.round(tot*100)/100;
+    var elapsed = ds.filter(function(d){ return d<=t; }).length;
+    return { total:tot, rows:rows, logged:logged, best:best, avg: logged ? Math.round(tot/logged*100)/100 : 0, elapsed:elapsed, days:ds.length,
+             proj: (mk===t.slice(0,7) && logged>=3 && elapsed>0) ? Math.round(tot/elapsed*ds.length) : null };
+  }
+
+  /* ---------- plumbing: the page called "lane" follows the business you are looking at ---------- */
+  var _gp = getPage;
+  getPage = function(ds, pid){ return _gp.call(this, ds, pid==='lane' ? pageKey(DB.lane) : pid); };
+  var _mt = markTouched;
+  markTouched = function(ds, pid){
+    if(pid==='lane' && pageKey(DB.lane)!=='lane'){ var m = _gp(ds,'lane'); m._touched = true; m._touchedAt = Date.now(); }   /* the day still counts as "logged" */
+    return _mt.apply(this, arguments);
+  };
+  laneValueForDay = function(ds){ var s = 0; list().forEach(function(id){ s += valueOf(pageOf(ds,id), id); }); return Math.round(s*100)/100; };
+  pickLane = function(id){ DB.lane = id; sync(); saveDB(); openLaneLog(); };
+  window.bizRemove = function(id){
+    var L = list(), i = L.indexOf(id); if(i>=0) L.splice(i,1);
+    if(DB.lane===id) DB.lane = L[0] || null;
+    saveDB(); closeSheet(); flashSaved('Removed'); render();
+  };
+  window.bizAsk = function(id){
+    var m = meta(id); if(!m) return;
+    openSheet('<div class="sheet-title"><span>Remove '+E(m.name)+'?</span><button class="sheet-close" onclick="closeSheet()" aria-label="Close">'+icon('close',15)+'</button></div>'
+      + '<div class="confirm-body"><p>It leaves your list and the month totals. The days you logged stay saved, and they come back if you add it again.</p>'
+      + '<button class="confirm-danger-btn" onclick="bizRemove(\''+id+'\')">'+icon('trash',15)+' Remove</button><button class="confirm-cancel-btn" onclick="closeSheet()">Keep it</button></div>');
+  };
+  window.bizAddMore = function(){ window.__bizAdd = !window.__bizAdd; render(); };
+
+  /* ---------- the dashboard (the "Business" page) ---------- */
+  function bars(rows, cls){
+    var max = Math.max.apply(null, rows.map(function(r){ return Math.abs(r.v); }).concat([1]));
+    return '<div class="c6-days '+(cls||'')+'">' + rows.map(function(r){ var h = r.v ? Math.max(10, Math.round(Math.abs(r.v)/max*100)) : 4;
+      return '<i class="'+(r.future?'f':r.v<0?'n':r.v>0?'p':'')+'" style="height:'+h+'%" title="'+E(r.ds.slice(8)+': '+money(r.v))+'"></i>'; }).join('') + '</div>';
+  }
+  function dashboard(){
+    var mk = currentMonthKey(), L = list().filter(function(id){ return meta(id); }), all = month(mk), t = todayStr();
+    var cards = L.map(function(id){
+      var m = meta(id), mm = month(mk, id), cur = DB.lane===id, today = valueOf(pageOf(t,id), id);
+      return '<div class="biz-card'+(cur?' cur':'')+'"><div class="biz-top"><div class="lane-glyph">'+E(m.glyph)+'</div><div class="biz-nm"><b>'+E(m.name)+'</b><small>'+mm.logged+' day'+(mm.logged===1?'':'s')+' logged this month</small></div>'
+        + '<div class="biz-amt"><b class="'+(mm.total<0?'neg':'')+'">'+E(money(mm.total))+'</b><small>this month</small></div></div>'
+        + bars(mm.rows.slice(Math.max(0, mm.rows.findIndex(function(r){ return r.ds===t; })-13), Math.max(14, mm.rows.findIndex(function(r){ return r.ds===t; })+1)), 'mini')
+        + '<div class="biz-row"><span>Today <b>'+E(money(today))+'</b>'+(mm.best>0 ? ' · best day <b>'+E(money(mm.best))+'</b>' : '')+'</span></div>'
+        + '<div class="biz-btns"><button type="button" class="biz-go" onclick="pickLane(\''+id+'\')">'+icon('chevright',14)+' Log today</button><button type="button" class="biz-rm" onclick="bizAsk(\''+id+'\')">Remove</button></div></div>';
+    }).join('');
+    var rest = LANES.filter(function(l){ return L.indexOf(l.id)<0; }).map(function(l){
+      return '<div class="lane-card" onclick="pickLane(\''+l.id+'\')"><div class="lane-glyph">'+E(l.glyph)+'</div><div class="lane-info"><div class="lane-name">'+E(l.name)+'</div><div class="lane-desc">'+E(l.desc)+'</div></div></div>'; }).join('');
+    var make = '<button type="button" class="lane-card ln-make" data-ln="create"><div class="lane-glyph">+</div><div class="lane-info"><div class="lane-name">Create your own business log</div><div class="lane-desc">Not on the list? Tap a name, tap what to track, done.</div></div></button>';
+    var open = !!window.__bizAdd;
+    return renderTopbar('Business', true) + '<div class="lane-picker biz-dash">'
+      + '<div class="c6-inc"><div class="c6-h">All businesses <small>'+E(monthLabelShort())+'</small></div><div class="c6-big">'+E(money(all.total))+'<span>this month</span></div>'
+      + (L.length ? '<div class="c6-s">Adds up what each log counts as money. It also fills your Income Streams.</div>' : '')
+      + '<div class="c6-chips">'+[[all.logged+'/'+all.elapsed,'days logged'],[all.best>0?money(all.best):'–','best day'],[all.proj!=null?money(all.proj):'–','month-end pace'],[L.length,'business'+(L.length===1?'':'es')]].map(function(x){ return '<div class="c6-chip"><b>'+E(x[0])+'</b><span>'+E(x[1])+'</span></div>'; }).join('')+'</div>'
+      + bars(all.rows) + '<button type="button" class="c6-link" onclick="nav(\'page\',\'income\')">Open Income Streams</button></div>'
+      + cards
+      + '<button type="button" class="add-row-btn biz-add" onclick="bizAddMore()">'+icon('plus',14)+' '+(open?'Hide the list':'Add another business')+'</button>'
+      + (open ? rest + make : '') + '</div>';
+  }
+  var basePicker = PAGE_RENDERERS.lane;
+  function picker(ds){
+    sync(); basePicker.apply(this, arguments);          /* the old page runs first: it loads your own business logs into the list */
+    var L = list(), ok = L.filter(function(id){ return meta(id); }); if(ok.length!==L.length){ DB.lanes = ok; L = ok; }
+    if(L.length) app.innerHTML = dashboard();
+  }
+  renderLanePicker = picker; PAGE_RENDERERS.lane = picker;
+
+  /* ---------- the lane log: business tabs, "counts as" line, Car Wash job log ---------- */
+  function counts(ds){
+    var id = DB.lane, p = getPage(ds,'lane'), v = valueOf(p, id), h = '';
+    var rev = num(p.revenue), hrs = num(p.hours) || num(p.billable), line = [];
+    if(id==='FR' && hrs && v) line.push('effective rate '+money(v/hrs)+'/h');
+    if(id==='EC' && rev && num(p.netprofit)!=null) line.push('margin '+Math.round(num(p.netprofit)/rev*100)+'%');
+    if(id==='CW' && Array.isArray(p.jobs) && p.jobs.length) line.push(p.jobs.length+' job'+(p.jobs.length===1?'':'s')+' logged');
+    if(v || line.length) h = '<div class="biz-today"><span>Counts as <b class="'+(v<0?'neg':'')+'">'+E(money(v))+'</b> today</span>'+(line.length ? '<i>'+E(line.join(' · '))+'</i>' : '')+'</div>';
+    return h;
+  }
+  function tabs(){
+    var L = list().filter(function(id){ return meta(id); }); if(L.length<2) return '';
+    return '<div class="biz-tabs" role="tablist">'+L.map(function(id){ return '<button type="button" role="tab" aria-selected="'+(DB.lane===id)+'" class="biz-tab'+(DB.lane===id?' on':'')+'" onclick="pickLane(\''+id+'\')">'+E(meta(id).name)+'</button>'; }).join('')+'</div>';
+  }
+  var baseLLB = laneLogBody;
+  laneLogBody = function(ds){ sync(); var b = baseLLB.apply(this, arguments); return b==null ? b : tabs() + counts(ds) + b; };
+
+  /* Car Wash: the job log (vehicle, service, price, tip) */
+  var CWV = ['Sedan','SUV','Pickup','Van','Motorbike','Bus'], CWS = ['Wash','Wash + wax','Interior','Full detail','Engine bay'];
+  function jobsCard(ds){
+    var p = getPage(ds,'lane'); if(!Array.isArray(p.jobs)) p.jobs = [];
+    var h = p.jobs.map(function(j, i){
+      function st(key){ var n = num(j[key]);
+        return '<div class="ln-lab">'+(key==='price'?'Price':'Tip')+'</div><div class="ui-stepper"><button type="button" class="ui-sbtn" aria-label="Less" data-bz="jstep" data-i="'+i+'" data-key="'+key+'" data-d="-5">−</button>'
+          + '<div class="ui-sval'+(n==null?' empty':'')+'"><b>'+(n==null ? '—' : E(money(n)))+'</b></div>'
+          + '<button type="button" class="ui-sbtn" aria-label="More" data-bz="jstep" data-i="'+i+'" data-key="'+key+'" data-d="5">+</button></div>'
+          + '<div class="pill-row ui-chips ui-quick">'+(key==='price' ? [10,20,30,50,80] : [2,5,10]).map(function(q){ return '<button type="button" class="pill ui-chip'+(n===q?' on':'')+'" data-bz="jq" data-i="'+i+'" data-key="'+key+'" data-v="'+q+'">$'+q+'</button>'; }).join('')+'</div>'; }
+      function chips(key, opts){ return '<div class="pill-row ui-chips">'+opts.map(function(o){ var on = j[key]===o; return '<button type="button" class="pill ui-chip'+(on?' on':'')+'" aria-pressed="'+on+'" data-bz="jpick" data-i="'+i+'" data-key="'+key+'" data-v="'+E(o)+'">'+E(o)+'</button>'; }).join('')+'</div>'; }
+      return '<div class="ln-trade"><div class="ln-th"><b>Job '+(i+1)+'</b><button type="button" class="ln-x" data-bz="jdel" data-i="'+i+'">Remove</button></div>'
+        + '<div class="ln-lab">Vehicle</div>'+chips('vehicle',CWV)+'<div class="ln-lab">Service</div>'+chips('service',CWS)+st('price')+st('tip')+'</div>';
+    }).join('');
+    var tot = jobsSum(p,'price'), tp = jobsSum(p,'tip');
+    h += '<button type="button" class="add-row-btn" data-bz="jadd">'+icon('plus',14)+' Add a job</button>';
+    if(p.jobs.length) h += '<div class="ln-total">'+p.jobs.length+' job'+(p.jobs.length===1?'':'s')+' · '+E(money(tot))+' · tips '+E(money(tp))+'</div>';
+    return fieldWrap('Job log', 'One card per car. The prices and tips add up to today’s revenue and tips, unless you type those yourself above.', h);
+  }
+  if(LANE_FIELDS.CW){
+    var cwBase = LANE_FIELDS.CW.extra;
+    if(!LANE_FIELDS.CW.fields.some(function(f){ return f[0]==='hours'; })) LANE_FIELDS.CW.fields.push(['hours','Hours worked']);
+    LANE_FIELDS.CW.extra = function(ds){ return jobsCard(ds) + cwBase(ds); };
+  }
+  if(LANE_FIELDS.EC && !LANE_FIELDS.EC.fields.some(function(f){ return f[0]==='bestseller'; })){ LANE_FIELDS.EC.fields.push(['bestseller','Best-seller today']); if(SP) SP['lane.bestseller'] = { t:'single', opts:['Phone case','Shirt','Gadget','Home decor','Beauty item','Pet item','Toy','Accessory'] }; }
+  document.addEventListener('click', function(e){
+    var b = e.target && e.target.closest ? e.target.closest('[data-bz]') : null; if(!b) return;
+    var a = b.getAttribute('data-bz'), i = Number(b.getAttribute('data-i')), key = b.getAttribute('data-key'), ds = (typeof ROUTE!=='undefined' && ROUTE.date) || todayStr();
+    var p = getPage(ds,'lane'); if(!Array.isArray(p.jobs)) p.jobs = [];
+    if(a==='jadd') p.jobs.push({});
+    else if(!p.jobs[i]) return;
+    else if(a==='jdel') p.jobs.splice(i,1);
+    else if(a==='jpick') p.jobs[i][key] = p.jobs[i][key]===b.getAttribute('data-v') ? '' : b.getAttribute('data-v');
+    else if(a==='jq') p.jobs[i][key] = String(b.getAttribute('data-v'));
+    else if(a==='jstep'){ var n = num(p.jobs[i][key]); n = Math.max(0, (n==null ? 0 : n) + Number(b.getAttribute('data-d'))); p.jobs[i][key] = String(n); }
+    markTouched(ds,'lane'); saveDB(); flashSaved(); render();
+  });
+
+  /* keep the list true on every draw (a business picked in first-run setup, an old single lane...) */
+  var baseR = render;
+  render = function(){ try{ if(DB.onboarded) sync(); }catch(e){} return baseR.apply(this, arguments); };
+
+  window.BIZ = { list:function(){ return list().filter(function(id){ return meta(id); }); }, pageOf:pageOf, valueOf:valueOf, month:month, name:function(id){ var m = meta(id); return m ? m.name : ''; }, hasData:hasData };
+
+  var css = '.biz-dash{padding-bottom:20px}.biz-card{background:var(--surface);border:1.5px solid var(--line);border-radius:20px;padding:14px;margin:0 0 12px}.biz-card.cur{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}'
+    + '.biz-top{display:flex;align-items:center;gap:12px}.biz-nm{flex:1;min-width:0}.biz-nm b{display:block;font-family:var(--font-display);font-size:16px;color:var(--ink)}.biz-nm small,.biz-amt small{display:block;font-size:11.5px;color:var(--muted)}'
+    + '.biz-amt{text-align:right}.biz-amt b{font-family:var(--font-display);font-size:20px;color:var(--ink)}.biz-amt b.neg,.biz-today b.neg{color:#c0463c}'
+    + '.c6-days.mini{height:34px;margin-top:10px}.biz-row{font-size:12.5px;color:var(--ink-soft);margin-top:8px}.biz-row b{color:var(--ink)}'
+    + '.biz-btns{display:flex;gap:8px;margin-top:10px}.biz-go{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;border:0;border-radius:14px;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:800;font-size:14px;cursor:pointer;touch-action:manipulation}'
+    + '.biz-rm{min-height:44px;padding:0 14px;border:1.5px solid var(--line);border-radius:14px;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:700;cursor:pointer;touch-action:manipulation}.biz-add{margin:6px 0 12px}'
+    + '.biz-tabs{display:flex;gap:8px;overflow-x:auto;margin:0 0 12px;padding:2px 0;scrollbar-width:none}.biz-tabs::-webkit-scrollbar{display:none}'
+    + '.biz-tab{flex:none;min-height:38px;padding:0 14px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink-soft);font:inherit;font-size:13px;font-weight:700;cursor:pointer;touch-action:manipulation;white-space:nowrap}.biz-tab.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}'
+    + '.biz-today{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 10px;background:var(--accent-soft);border-radius:14px;padding:10px 14px;margin:0 0 12px;font-size:13px;color:var(--ink-soft)}.biz-today b{font-family:var(--font-display);font-size:17px;color:var(--ink)}.biz-today i{font-style:normal;font-size:12px}';
+  var st = document.createElement('style'); st.id = 'biz-css'; st.textContent = css; document.head.appendChild(st);
+}catch(e){ if(window.console) console.error('biz patch', e); } })();
 </script>
 <script>
 /* =====================================================================================================
@@ -15412,34 +15340,25 @@ if(LAYOUT_MQ){
   }
 
   /* ---- 2. Hustler's / Canvas: Income Streams <-> Business lane ---- */
-  function laneName(){ try{ var l = (typeof LANES!=='undefined' ? LANES : []).filter(function(x){ return x.id===DB.lane; })[0]; return l ? l.name : ''; }catch(e){ return ''; } }
-  function laneMonth(mk){
-    var ds = datesInMonth(mk), t = todayS(), rows = [], tot = 0, best = 0, bestDs = '', logged = 0;
-    ds.forEach(function(d){
-      var day = DB.days[d], ln = day && day.pages && day.pages.lane, v = 0;
-      if(ln && ln._touched){ v = laneValueForDay(d)||0; logged++; }
-      if(d<=t) tot += v;
-      rows.push({ ds:d, v:v, future: d>t });
-      if(v>best){ best = v; bestDs = d; }
-    });
-    tot = Math.round(tot*100)/100;
-    var elapsed = ds.filter(function(d){ return d<=t; }).length, proj = null;
-    if(mk===t.slice(0,7) && logged>=3 && elapsed>0) proj = Math.round(tot/elapsed*ds.length);
-    return { total:tot, rows:rows, logged:logged, best:best, bestDs:bestDs, avg: logged ? Math.round(tot/logged*100)/100 : 0, proj:proj, elapsed:elapsed, days:ds.length };
-  }
-  function autoStream(mk, create){
+  /* the businesses you run (see biz_patch.js). Old single-lane data is the same thing with one business. */
+  function bizIds(){ return window.BIZ ? BIZ.list() : (DB.lane ? [DB.lane] : []); }
+  function laneName(id){ id = id || DB.lane; try{ var l = (typeof LANES!=='undefined' ? LANES : []).filter(function(x){ return x.id===id; })[0]; return l ? l.name : ''; }catch(e){ return ''; } }
+  function laneMonth(mk, id){ return BIZ.month(mk, id); }
+  function autoStream(mk, create, id){
     var pg = getMonthlyPage('income', mk); if(!Array.isArray(pg.streams)) pg.streams = [];
-    var name = laneName(); if(!name) return null;
+    var name = laneName(id); if(!name) return null;
     var s = pg.streams.filter(function(x){ return String(x.name||'').trim().toLowerCase()===name.toLowerCase(); })[0];
     if(!s && create){ s = { name:name, current:'', target:'', next:'', status:'Active', auto:1 }; pg.streams.push(s); }
     return s || null;
   }
-  /* write the month's lane total into the auto stream (quiet: no toast) */
+  /* write each business's month total into its own auto stream (quiet: no toast) */
   function syncIncome(mk){
     try{
-      if(!HUST || typeof laneValueForDay!=='function' || !DB.lane) return;
-      var m = laneMonth(mk), s = autoStream(mk, m.total!==0 || m.logged>0); if(!s) return;
-      var cur = String(m.total); if(s.current!==cur){ s.current = cur; s.auto = 1; saveDB(); }
+      if(!HUST || !window.BIZ) return;
+      bizIds().forEach(function(id){
+        var m = laneMonth(mk, id), s = autoStream(mk, m.total!==0 || m.logged>0, id); if(!s) return;
+        var cur = String(m.total); if(s.current!==cur){ s.current = cur; s.auto = 1; saveDB(); }
+      });
     }catch(e){ if(window.console) console.error('c6 income sync', e); }
   }
   if(HUST && typeof markTouched==='function'){
@@ -15447,18 +15366,19 @@ if(LAYOUT_MQ){
     markTouched = function(ds, pid){ var out = _mt.apply(this, arguments); try{ if(pid==='lane') syncIncome(String(ds).slice(0,7)); }catch(e){} return out; };
   }
   function incomeCard(mk){
-    var name = laneName(), href = "nav('page','lane')";
-    if(!name || !DB.lane) return '<div class="c6-inc"><div class="c6-h">Live from your Business lane</div><div class="c6-s">You have not picked a Business lane yet. Pick one and log money in it: this page fills itself.</div></div>';
-    var m = laneMonth(mk), s = autoStream(mk, false), target = s ? (+s.target||0) : 0, all = (getMonthlyPage('income', mk).streams||[]).reduce(function(a,x){ return a + (+x.target||0); }, 0);
+    var ids = bizIds(), href = "nav('page','lane')";
+    if(!ids.length) return '<div class="c6-inc"><div class="c6-h">Live from your Business lane</div><div class="c6-s">You have not picked a business yet. Pick one and log money in it: this page fills itself.</div></div>';
+    var m = laneMonth(mk), multi = ids.length>1, s = multi ? null : autoStream(mk, false, ids[0]), target = s ? (+s.target||0) : 0;
     var pct = target ? Math.max(0, Math.min(100, Math.round(m.total/target*100))) : 0, max = Math.max.apply(null, m.rows.map(function(r){ return Math.abs(r.v); }).concat([1]));
-    var h = '<div class="c6-inc"><div class="c6-h">Live from your Business lane <small>'+E(name)+'</small></div>'
+    var h = '<div class="c6-inc"><div class="c6-h">Live from your '+(multi ? 'businesses' : 'Business lane')+' <small>'+E(multi ? ids.length+' businesses' : laneName(ids[0]))+'</small></div>'
       + '<div class="c6-big">'+E(money(m.total))+'<span>this month</span></div>';
     if(target) h += '<div class="c6-bar"><i style="width:'+pct+'%"></i></div><div class="c6-s">'+pct+'% of your '+E(money(target))+' target'+(m.proj!=null ? ' · on pace for about '+E(money(m.proj)) : '')+'</div>';
-    else h += '<div class="c6-s">Set a target for this lane and see how far you are:</div><div class="c6-q">'+[500,1000,2500,5000,10000].map(function(v){ return '<button type="button" data-c6="target" data-v="'+v+'">'+E(money(v))+'</button>'; }).join('')+'</div>'
+    else if(!multi) h += '<div class="c6-s">Set a target for this lane and see how far you are:</div><div class="c6-q">'+[500,1000,2500,5000,10000].map(function(v){ return '<button type="button" data-c6="target" data-v="'+v+'">'+E(money(v))+'</button>'; }).join('')+'</div>'
       + (m.proj!=null ? '<div class="c6-s" style="margin-top:6px">On pace for about '+E(money(m.proj))+' this month.</div>' : '');
+    else h += '<div class="c6-s">'+ids.map(function(id){ return '<b>'+E(laneName(id))+'</b> '+E(money(laneMonth(mk,id).total)); }).join(' · ')+'</div><div class="c6-s">Set a target for each business in its own stream below.</div>';
     h += chips([[m.logged+'/'+m.elapsed,'days logged'], [m.best>0 ? money(m.best) : '–','best day'], [m.logged ? money(m.avg) : '–','avg per day logged'], [m.proj!=null ? money(m.proj) : '–','month-end pace']]);
-    h += '<div class="c6-days" aria-label="Money per day">'+m.rows.map(function(r){ var hgt = r.v ? Math.max(8, Math.round(Math.abs(r.v)/max*100)) : 4; return '<i class="'+(r.future?'f':r.v<0?'n':r.v>0?'p':'')+'" style="height:'+hgt+'%" title="'+E(r.ds.slice(8)+': '+money(r.v))+'"></i>'; }).join('')+'</div>'
-      + '<button type="button" class="c6-link" onclick="'+href+'">Open your Business lane</button></div>';
+    h += '<div class="c6-days" aria-label="Money per day">'+m.rows.map(function(r){ var hgt = r.v ? Math.max(8, Math.round(Math.abs(r.v)/max*100)) : 4; return '<i class="'+(r.future?'f':r.v<0?'n':r.v>0?'p':'')+'" style="height:'+hgt+'%" title="'+E(r.ds.slice(8)+': '+money(r.v))+'"></i>'; }).join('')
+      + '<button type="button" class="c6-link" onclick="'+href+'">Open your Business dashboard</button></div>';
     return h;
   }
   document.addEventListener('click', function(e){
@@ -15509,11 +15429,7 @@ if(LAYOUT_MQ){
     try{
       if(typeof ROUTE!=='undefined' && ROUTE.view==='page' && DB.onboarded){
         var pb = document.querySelector('#app .page-body'), id = ROUTE.pageId, mk = currentMonthKey();
-        if(id==='lane' && HUST && DB.lane && !document.querySelector('#app .c6-laneline')){
-          /* the Business lane page has no .page-body: the lane picker comes first, so the strip goes right above it */
-          var anchor = pb || document.querySelector('#app .lane-picker'), m0 = laneMonth(mk); syncIncome(mk);
-          if(anchor) anchor.insertAdjacentHTML(pb ? 'afterbegin' : 'beforebegin', '<button type="button" class="c6-laneline" onclick="nav(\'page\',\'income\')"><span><b>'+E(money(m0.total))+'</b> this month</span><i>Goes into Income Streams · open</i></button>');
-        }
+        if(id==='lane' && HUST) syncIncome(mk);   /* the Business page is the dashboard now: it shows the totals itself */
         if(pb && !pb.querySelector('.c6-strip,.c6-laneline')){
           if(id==='habits') pb.insertAdjacentHTML('afterbegin', habitStrip(mk));
           else if(id==='income' && !HUST) pb.insertAdjacentHTML('afterbegin', strip('income', mk));
@@ -15537,6 +15453,75 @@ if(LAYOUT_MQ){
     + '.c6-laneline{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;background:var(--accent-soft);border:1.5px solid color-mix(in srgb,var(--accent) 28%,transparent);border-radius:16px;padding:11px 14px;margin:0 0 14px;font:inherit;cursor:pointer;color:var(--ink);touch-action:manipulation}.c6-laneline b{font-family:var(--font-display);font-size:18px}.c6-laneline i{font-style:normal;font-size:12px;color:var(--accent);font-weight:700}';
   var st = document.createElement('style'); st.id = 'c6-css'; st.textContent = css; document.head.appendChild(st);
 }catch(e){ if(window.console) console.error('c6 patch', e); } })();
+</script>
+<script>
+/* =====================================================================================================
+   TAP THE NUMBER TO TYPE IT
+   The + / - buttons and quick chips are fine for small steps, but not for $12,500 or 80,000 views.
+   Tap the big number in the middle of any stepper and it becomes a box: type, press Enter (or tap away), done.
+   Works for: every daily number box (money, hours, minutes, counts, times), trade results, workout sets / reps / kg.
+   Typed numbers are NOT capped (the + / - buttons still are). Escape cancels.
+   shortcut: Movement distance / pace steppers and workout-preset steppers still use + / - only; add them here if you want typing there too.
+   ===================================================================================================== */
+(function(){
+  try{
+    if(!window.UI || !UI.kinds || !UI.specFor) return;
+    var E = esc, K = UI.kinds;
+    var css = '.ui-stepper .ui-sval:not(.fx-val){cursor:text}'
+      + '.ui-stepper .ui-sval:not(.fx-val):not(.typing) b{text-decoration:underline dotted;text-decoration-color:color-mix(in srgb,var(--ink) 28%,transparent);text-underline-offset:7px;text-decoration-thickness:1.5px}'
+      + '.ui-typein{width:100%;min-width:0;border:0;outline:0;background:transparent;text-align:center;font:inherit;font-size:28px;font-weight:800;color:var(--ink);padding:0;-webkit-appearance:none;appearance:none}'
+      + '.ui-sval.typing{background:var(--surface);border-radius:12px;box-shadow:inset 0 0 0 2px var(--accent);padding:4px 6px}';
+    var st = document.createElement('style'); st.id = 'typenum-css'; st.textContent = css; document.head.appendChild(st);
+
+    /* where does this stepper keep its number?  get() reads it, put(n) saves it.  Found from its own - / + buttons. */
+    function target(sval){
+      var host = sval.closest('.ui-stepper'), btn = host && host.querySelector('.ui-sbtn'); if(!btn) return null;
+      var ds = btn.getAttribute('data-ds') || ((typeof ROUTE!=='undefined' && ROUTE.date) || todayStr());
+      if(btn.getAttribute('data-ui')==='step'){
+        var pid = btn.getAttribute('data-pid'), key = btn.getAttribute('data-key'), spec = UI.specFor(pid,key); if(!spec) return null;
+        var k = K[spec.kind];
+        return { kind:spec.kind, mode:k.parse===K.time.parse ? 'text' : 'decimal',
+          raw:function(){ return getPage(ds,pid)[key]; },
+          put:function(n){ var s = spec.kind==='hrs' ? String(n) : k.fmt(n); setText(ds,pid,key,s); } };
+      }
+      if(btn.getAttribute('data-ln')==='tstep'){
+        var i = Number(btn.getAttribute('data-i'));
+        return { kind:'money', mode:'decimal', raw:function(){ var t = (getPage(ds,'lane').trades||[])[i]; return t && t.pnl; },
+          put:function(n){ var t = (getPage(ds,'lane').trades||[])[i]; if(t){ t.pnl = String(Math.round(n*100)/100); markTouched(ds,'lane'); saveDB(); } } };
+      }
+      if(btn.getAttribute('data-bz')==='jstep'){
+        var ji = Number(btn.getAttribute('data-i')), jk = btn.getAttribute('data-key');
+        return { kind:'money', mode:'decimal', raw:function(){ var j = (getPage(ds,'lane').jobs||[])[ji]; return j && j[jk]; },
+          put:function(n){ var j = (getPage(ds,'lane').jobs||[])[ji]; if(j){ j[jk] = String(Math.round(Math.max(0,n)*100)/100); markTouched(ds,'lane'); saveDB(); } } };
+      }
+      if(btn.getAttribute('data-ui')==='exstep'){
+        var j = Number(btn.getAttribute('data-i')), f = btn.getAttribute('data-key');
+        return { kind:'num', mode:'decimal', raw:function(){ var e = (getPage(ds,'workout').exercises||[])[j]; return e && e[f]; },
+          put:function(n){ var e = (getPage(ds,'workout').exercises||[])[j]; if(e){ e[f] = String(n); markTouched(ds,'workout'); saveDB(); } } };
+      }
+      return null;
+    }
+    document.addEventListener('click', function(e){
+      var sv = e.target.closest && e.target.closest('.ui-sval'); if(!sv || sv.classList.contains('fx-val') || sv.classList.contains('typing')) return;
+      var tg = target(sv); if(!tg) return;
+      var cur = tg.kind==='time' ? '' : (function(){ var n = K[tg.kind] ? K[tg.kind].parse(tg.raw()) : null; return n==null ? '' : String(n); })();
+      sv.classList.add('typing');
+      sv.innerHTML = '<input class="ui-typein" inputmode="'+tg.mode+'" autocomplete="off" aria-label="Type a number" value="'+E(cur)+'">';
+      var inp = sv.firstChild, done = false;
+      function finish(save){
+        if(done) return; done = true;
+        if(save){
+          var txt = String(inp.value).trim(), n = txt==='' ? null : (tg.kind==='time' ? K.time.parse(txt) : parseFloat(txt.replace(/[^0-9.\-]/g,'')));
+          if(n!=null && isFinite(n)){ if(tg.kind!=='money' && tg.kind!=='time' && n<0) n = 0; tg.put(n); try{ flashSaved(); }catch(x){} }
+        }
+        render();
+      }
+      inp.addEventListener('keydown', function(ev){ if(ev.key==='Enter'){ ev.preventDefault(); finish(true); } else if(ev.key==='Escape'){ finish(false); } });
+      inp.addEventListener('blur', function(){ finish(true); });
+      inp.focus(); inp.select();
+    });
+  }catch(e){ if(window.console) console.error('type a number', e); }
+})();
 </script>
 <script>
 /* ============================================================
