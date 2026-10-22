@@ -13221,7 +13221,7 @@ if(LAYOUT_MQ){
     render = function(){
       var r = _r2.apply(this, arguments);
       try{
-        if(typeof ROUTE==='undefined' || ROUTE.view!=='page' || EXCLUDE[ROUTE.pageId]) return r;
+        if(typeof ROUTE==='undefined' || (ROUTE.view!=='page' && ROUTE.view!=='lanelog') || EXCLUDE[ROUTE.pageId]) return r;   /* the business / hobby log pages count too (their Supplies / Equipment checks) */
         var rows = Array.prototype.slice.call(document.querySelectorAll('#app .page-body .check-row')), groups = [];
         rows.forEach(function(row){ var par = row.parentNode; var g = groups.filter(function(x){ return x.par===par; })[0]; if(!g){ g = { par:par, rows:[] }; groups.push(g); } g.rows.push(row); });
         groups.forEach(function(g){
@@ -15241,14 +15241,36 @@ if(LAYOUT_MQ){
     if(p.jobs.length) h += '<div class="ln-total">'+p.jobs.length+' job'+(p.jobs.length===1?'':'s')+' · '+E(money(tot))+' · tips '+E(money(tp))+'</div>';
     return fieldWrap('Job log', 'One card per car. The prices and tips add up to today’s revenue and tips, unless you type those yourself above.', h);
   }
+  /* Supplies check (Car Wash) and Equipment used (Lawn Care): the same checklist rules as every other box (a ticked row collapses into the "Done" strip),
+     plus "Add or edit options" so you can list your own supplies. Your own options are saved per business in DB.laneExtra. */
+  var CHECKS = {
+    CW: { title:'Supplies check', hint:'Tap what needs restocking', pre:'stock_', defs:['Soap','Microfiber','Wax / sealant','Tire shine','Vacuum bags'], ideas:['Wipes','Air freshener','Glass cleaner','Brushes','Buckets','Gloves','Degreaser','Water','Sponges'], note:['Note for next session','Anything to remember...'] },
+    LC: { title:'Equipment used', hint:'Tap what you used today', pre:'equip_', defs:['Mower','Trimmer','Blower','Edger','Fertilizer'], ideas:['Gloves','Fuel','Trimmer line','Blades','Bags','Sunscreen','Water','Rake','Hedge cutter'], note:['Note for next route','...'] }
+  };
+  function clean(n){ return String(n||'').replace(/['"\\<>&]/g,'').trim().slice(0,28); }
+  function extras(id){ if(!DB.laneExtra || typeof DB.laneExtra!=='object') DB.laneExtra = {}; if(!Array.isArray(DB.laneExtra[id])) DB.laneExtra[id] = []; return DB.laneExtra[id]; }
+  function checklist(ds, id){
+    var c = CHECKS[id], items = c.defs.concat(extras(id).filter(function(x){ return c.defs.indexOf(x)<0; }));
+    return fieldWrap(c.title, c.hint, items.map(function(s){ return checkRow(ds,'lane',c.pre+s,s); }).join('')
+      + '<button type="button" class="add-row-btn" data-bz="optedit" data-lane="'+id+'">'+icon('plus',14)+' Add or edit options</button>')
+      + fieldWrap(c.note[0], null, areaField(ds,'lane','note',c.note[1],getPage(ds,'lane').note));
+  }
+  function editOptions(id){
+    var c = CHECKS[id], mine = extras(id).slice(), all = c.ideas.filter(function(x){ return mine.indexOf(x)<0; }).concat(mine);
+    LISTS.openLS({ title:'Your '+c.title.toLowerCase()+' options', needs:false,
+      intro:'Tap to add an option to the list. Tap a lit one to take it off again. "+ Other" is for your own.',
+      secs:[ { id:'v', label:'Extra options (the five standard ones always stay)', multi:true, other:true, opts:all, sel:mine } ],
+      cta:function(st){ return 'Save '+st.v.length+' option'+(st.v.length===1?'':'s'); },
+      done:function(st){ DB.laneExtra[id] = st.v.map(clean).filter(function(x, i, a){ return x && a.indexOf(x)===i; }); saveDB(); flashSaved('Saved'); render(); } });
+  }
+  ['CW','LC'].forEach(function(id){ if(LANE_FIELDS[id]){ LANE_FIELDS[id].extra = function(ds){ return (id==='CW' ? jobsCard(ds) : '') + checklist(ds, id); }; } });
   if(LANE_FIELDS.CW){
-    var cwBase = LANE_FIELDS.CW.extra;
-    if(!LANE_FIELDS.CW.fields.some(function(f){ return f[0]==='hours'; })) LANE_FIELDS.CW.fields.push(['hours','Hours worked']);
-    LANE_FIELDS.CW.extra = function(ds){ return jobsCard(ds) + cwBase(ds); };
+        if(!LANE_FIELDS.CW.fields.some(function(f){ return f[0]==='hours'; })) LANE_FIELDS.CW.fields.push(['hours','Hours worked']);
   }
   if(LANE_FIELDS.EC && !LANE_FIELDS.EC.fields.some(function(f){ return f[0]==='bestseller'; })){ LANE_FIELDS.EC.fields.push(['bestseller','Best-seller today']); if(SP) SP['lane.bestseller'] = { t:'single', opts:['Phone case','Shirt','Gadget','Home decor','Beauty item','Pet item','Toy','Accessory'] }; }
   document.addEventListener('click', function(e){
     var b = e.target && e.target.closest ? e.target.closest('[data-bz]') : null; if(!b) return;
+    if(b.getAttribute('data-bz')==='optedit'){ e.preventDefault(); return editOptions(b.getAttribute('data-lane')); }
     var a = b.getAttribute('data-bz'), i = Number(b.getAttribute('data-i')), key = b.getAttribute('data-key'), ds = (typeof ROUTE!=='undefined' && ROUTE.date) || todayStr();
     var p = getPage(ds,'lane'); if(!Array.isArray(p.jobs)) p.jobs = [];
     if(a==='jadd') p.jobs.push({});
@@ -15522,6 +15544,226 @@ if(LAYOUT_MQ){
     });
   }catch(e){ if(window.console) console.error('type a number', e); }
 })();
+</script>
+<script>
+/* =====================================================================================================
+   PROJECT COLLECTION (Sober Boy / Sober Girl only): the library for things you make
+
+   WHAT IT IS, IN PLAIN WORDS
+   A project is something you work on over days or weeks: a bookshelf (DIY), a sourdough, a song, a balcony garden.
+   - You START a project (pick the hobby, tap a name idea).
+   - You ADD PROGRESS whenever you work on it: a photo of where you are, a few taps for what you did, an optional note.
+   - You FINISH it (how did it go, what you learned). It moves to the Finished collection.
+   - The dashboard shows what is in progress, the finished collection (open any one to see every step again),
+     and "Try something new" ideas. From a finished project, "Start another like this" begins a new one with the same hobby and name.
+   Where: Settings > My setup > Libraries > Project collection, and a card at the bottom of each hobby log.
+
+   HOW IT IS SAVED (old backups keep working): DB.projects = [{ id, name, hobby, goal, started, finished, status:'active'|'done', rating, learned[],
+     entries:[{ id, ds, ts, img (small photo, saved inside the data), tags[], note }] }]
+   Photos are shrunk to about 100 KB and live in the phone's browser storage (about 5 MB shared with everything else): roughly 30 to 40 photos.
+   When storage is full it says so and saves nothing (it never half-saves).
+   shortcut: adding progress does not mark the day's hobby log as done; they are separate. Link them if you want one tap to do both.
+   ===================================================================================================== */
+(function(){ try{
+  if(typeof BRAND==='undefined' || !/sober/i.test(BRAND.name||'') || typeof PAGE_RENDERERS==='undefined' || !window.LISTS || !LISTS.openLS) return;
+  var E = esc;
+  function list(){ if(!Array.isArray(DB.projects)) DB.projects = []; return DB.projects; }
+  function byId(id){ return list().filter(function(p){ return p.id===id; })[0] || null; }
+  function hobbies(){ return (typeof LANES!=='undefined' ? LANES : []).map(function(l){ return l.name; }); }
+  function dFmt(ds){ try{ return new Date(ds+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}); }catch(e){ return ds; } }
+  function daysBetween(a,b){ return Math.max(1, Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00'))/864e5)+1); }
+  function cover(p){ for(var i=p.entries.length-1;i>=0;i--) if(p.entries[i].img) return p.entries[i].img; return null; }
+  function photoCount(p){ return p.entries.filter(function(e){ return e.img; }).length; }
+  function lastDs(p){ return p.entries.length ? p.entries[p.entries.length-1].ds : p.started; }
+  var IDEAS = {
+    'DIY & Crafting':['Bookshelf','Picture frame','Planter box','Birdhouse','Knitted scarf','Candle making','Repair something'],
+    'Cooking & Baking':['Sourdough loaf','Layer cake','Pasta from scratch','Homemade pizza','Ramen from scratch'],
+    'Music':['Learn a new song','Write a song','Record a cover','Master a scale'],
+    'Sport':['5 km run','Learn to swim','Climb a route','Handstand'],
+    'Art & Drawing':['Portrait','Landscape painting','Sketchbook page','Comic page','Clay figure'],
+    'Gardening':['Herb garden','Tomato plants','Balcony garden','Compost bin'],
+    'Gaming':['Finish a game','Learn a speedrun','Build a PC'],
+    'Volunteering':['Beach clean-up','Food drive','Teach a class']
+  };
+  var DID = ['Planned it','Got the materials','Started it','Made progress','Fixed a mistake','Hit a snag','Finished a step','Tested it'];
+  var VIEW = null, DRAFT = null, ARM = null;   /* VIEW = id of the open project (null = dashboard) */
+
+  /* ---------- photo: shrink to a small JPEG (same idea as the Hair Log) ---------- */
+  function compress(file, cb){
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function(){ try{
+      var SZ = [800, 640, 520], Q = [.66, .55, .45], out = null;
+      for(var i=0;i<SZ.length;i++){
+        var sc = Math.min(1, SZ[i]/Math.max(img.naturalWidth, img.naturalHeight)), w = Math.max(1, Math.round(img.naturalWidth*sc)), h = Math.max(1, Math.round(img.naturalHeight*sc));
+        var cv = document.createElement('canvas'); cv.width = w; cv.height = h; var cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0,0,w,h); cx.drawImage(img,0,0,w,h);
+        out = cv.toDataURL('image/jpeg', Q[i]); if(out.length <= 110000) break;
+      }
+      URL.revokeObjectURL(url); cb(out);
+    }catch(e){ URL.revokeObjectURL(url); cb(null); } };
+    img.onerror = function(){ URL.revokeObjectURL(url); cb(null); };
+    img.src = url;
+  }
+  function trySave(undo){ var ok = (typeof bxTrySave==='function') ? bxTrySave() : (saveDB(), true); if(!ok){ undo(); try{ flashSaved('Storage is full: nothing was saved. Delete an old photo first.'); }catch(e){} } return ok; }
+
+  /* ---------- the page ---------- */
+  function thumb(p, big){ var c = cover(p); return c ? '<img class="pj-th'+(big?' big':'')+'" src="'+c+'" alt="">' : '<div class="pj-th'+(big?' big':'')+' none">'+icon('camera',big?28:20)+'</div>'; }
+  function dashboard(){
+    var L = list(), act = L.filter(function(p){ return p.status!=='done'; }), fin = L.filter(function(p){ return p.status==='done'; });
+    var mk = todayStr().slice(0,7), days = {}; L.forEach(function(p){ p.entries.forEach(function(e){ if(String(e.ds).slice(0,7)===mk) days[e.ds] = 1; }); });
+    var photos = L.reduce(function(n,p){ return n+photoCount(p); }, 0), bytes = L.reduce(function(n,p){ return n + p.entries.reduce(function(m,e){ return m + (e.img ? e.img.length : 0); }, 0); }, 0);
+    var h = '<div class="pj-sum">'+[[act.length,'in progress'],[fin.length,'finished'],[photos,'photos'],[Object.keys(days).length,'days worked this month']].map(function(x){ return '<div><b>'+x[0]+'</b><span>'+x[1]+'</span></div>'; }).join('')+'</div>'
+      + '<button type="button" class="pj-new" data-pj="new">'+icon('plus',16)+' Start a new project</button>';
+    h += '<div class="pj-h">In progress</div>';
+    h += act.length ? act.map(function(p){
+      return '<div class="pj-card" data-pj="open" data-id="'+p.id+'" role="button" tabindex="0">'+thumb(p)+'<div class="pj-mid"><b>'+E(p.name)+'</b><small>'+E(p.hobby)+' · started '+E(dFmt(p.started))+'</small><small>'+p.entries.length+' update'+(p.entries.length===1?'':'s')+' · last '+E(dFmt(lastDs(p)))+'</small></div>'
+        + '<button type="button" class="pj-add" data-pj="add" data-id="'+p.id+'" aria-label="Add progress to '+E(p.name)+'">'+icon('camera',16)+' Add</button></div>'; }).join('')
+      : '<div class="pj-empty">Nothing in progress. Start one: a DIY shelf, a sourdough, a song you are learning.</div>';
+    h += '<div class="pj-h">Finished collection</div>';
+    h += fin.length ? '<div class="pj-grid">'+fin.map(function(p){ var d = daysBetween(p.started,p.finished); return '<button type="button" class="pj-fin" data-pj="open" data-id="'+p.id+'">'+thumb(p,true)+'<b>'+E(p.name)+'</b><small>'+E(p.hobby)+' · '+d+' day'+(d===1?'':'s')+(p.rating ? ' · '+'★'.repeat(p.rating) : '')+'</small></button>'; }).join('')+'</div>'
+      : '<div class="pj-empty">Finished projects collect here, with every step you photographed.</div>';
+    /* try something new: ideas you have not started yet, one per hobby, rotating by day */
+    var used = {}; L.forEach(function(p){ used[p.name.toLowerCase()] = 1; });
+    var ideas = []; Object.keys(IDEAS).forEach(function(hb,i){ var pool = IDEAS[hb].filter(function(x){ return !used[x.toLowerCase()]; }); if(pool.length) ideas.push([hb, pool[(new Date().getDate()+i)%pool.length]]); });
+    h += '<div class="pj-h">Try something new</div><div class="pj-ideas">'+ideas.slice(0,6).map(function(x){ return '<button type="button" data-pj="idea" data-hb="'+E(x[0])+'" data-n="'+E(x[1])+'">'+E(x[1])+'<small>'+E(x[0])+'</small></button>'; }).join('')+'</div>';
+    h += '<div class="pj-store">'+photos+' photo'+(photos===1?'':'s')+' use about '+Math.round(bytes/1024)+' KB of this phone’s ~5 MB app storage.</div>';
+    return h;
+  }
+  function detail(p){
+    var done = p.status==='done', h = '<button type="button" class="pj-back" data-pj="back">'+icon('chevleft',14)+' All projects</button>';
+    var first = null, last = null; p.entries.forEach(function(e){ if(e.img){ if(!first) first = e; last = e; } });
+    h += '<div class="pj-hero"><div class="pj-name">'+E(p.name)+'</div><div class="pj-meta">'+E(p.hobby)+' · '+(done ? 'finished '+E(dFmt(p.finished))+' · took '+daysBetween(p.started,p.finished)+' day'+(daysBetween(p.started,p.finished)===1?'':'s') : 'started '+E(dFmt(p.started))+' · day '+daysBetween(p.started,todayStr()))+'</div>'
+      + (p.goal ? '<div class="pj-goal">'+icon('target',13)+' '+E(p.goal)+'</div>' : '')
+      + (done && p.rating ? '<div class="pj-goal">'+'★'.repeat(p.rating)+' '+E(['','Not great','Okay','Good','Great','Proud of it'][p.rating])+(p.learned && p.learned.length ? ' · learned: '+E(p.learned.join(', ')) : '')+'</div>' : '')+'</div>';
+    if(first && last && first!==last) h += '<div class="pj-ba"><figure><img src="'+first.img+'" alt="First photo"><figcaption>Start · '+E(dFmt(first.ds))+'</figcaption></figure><figure><img src="'+last.img+'" alt="Latest photo"><figcaption>'+(done?'Finish':'Latest')+' · '+E(dFmt(last.ds))+'</figcaption></figure></div>';
+    if(!done) h += '<button type="button" class="pj-new" data-pj="add" data-id="'+p.id+'">'+icon('camera',16)+' Add progress</button>';
+    h += '<div class="pj-h">Every step</div>';
+    h += p.entries.length ? p.entries.slice().reverse().map(function(e){
+      return '<div class="pj-ent">'+(e.img ? '<img class="pj-eimg" src="'+e.img+'" alt="" data-pj="view" data-id="'+p.id+'" data-e="'+e.id+'">' : '')
+        + '<div class="pj-etx"><b>'+E(dFmt(e.ds))+'</b>'+((e.tags||[]).length ? '<div class="pj-tags">'+e.tags.map(function(t){ return '<span>'+E(t)+'</span>'; }).join('')+'</div>' : '')+(e.note ? '<p>'+E(e.note)+'</p>' : '')
+        + '<button type="button" class="pj-x" data-pj="delentry" data-id="'+p.id+'" data-e="'+e.id+'">'+(ARM==='e'+e.id ? 'Tap again to delete' : 'Delete')+'</button></div></div>'; }).join('')
+      : '<div class="pj-empty">No steps yet. Add your first photo or a few taps about what you did.</div>';
+    h += '<div class="pj-acts">'+(done ? '<button type="button" class="pj-btn" data-pj="again" data-id="'+p.id+'">'+icon('sparkle',15)+' Start another like this</button><button type="button" class="pj-btn ghost" data-pj="reopen" data-id="'+p.id+'">Back to in progress</button>'
+      : '<button type="button" class="pj-btn" data-pj="finish" data-id="'+p.id+'">'+icon('check',15)+' Finish this project</button>')
+      + '<button type="button" class="pj-btn ghost danger" data-pj="del" data-id="'+p.id+'">'+(ARM==='p'+p.id ? 'Tap again to delete the project' : 'Delete project')+'</button></div>';
+    return h;
+  }
+  function renderProjects(){
+    var p = VIEW ? byId(VIEW) : null; if(VIEW && !p) VIEW = null;
+    app.innerHTML = renderTopbar('Project collection', true) + '<div class="page-body pj-page">' + (p ? detail(p) : dashboard()) + '</div><div class="gap-block"></div>';
+  }
+  PAGE_RENDERERS.projects = renderProjects;
+
+  /* ---------- sheets ---------- */
+  function newSheet(hobby, name){
+    LISTS.openLS({ title:'Start a project', needs:true,
+      secs:[ { id:'hb', label:'1 · Which hobby?', opts:hobbies(), sel:hobby ? [hobby] : [], other:true },
+             { id:'nm', label:'2 · What are you making?', opts:function(st){ var hb = st.hb[0]; return (IDEAS[hb] || []).slice(); }, sel:name ? [name] : [], other:true },
+             { id:'gl', label:'3 · Why? (optional)', opts:['Just for fun','Learn something','A gift','Fix something','Finish this month'], sel:[], other:true } ],
+      count:function(st){ return st.hb.length && st.nm.length ? 1 : 0; },
+      cta:function(st,n){ return n ? 'Start “'+String(st.nm[0]).slice(0,26)+'”' : 'Pick a hobby and a name'; },
+      done:function(st){ var p = { id:'pj'+Date.now().toString(36)+Math.floor(Math.random()*1e3), name:String(st.nm[0]).slice(0,60), hobby:String(st.hb[0]).slice(0,40), goal:st.gl.length ? String(st.gl[0]).slice(0,60) : '', started:todayStr(), finished:null, status:'active', rating:0, learned:[], entries:[] };
+        list().push(p); saveDB(); VIEW = p.id; flashSaved('Project started'); if(ROUTE.view==='page' && ROUTE.pageId==='projects') render(); else nav('page','projects'); } });
+  }
+  function addSheet(id){
+    var p = byId(id); if(!p) return; DRAFT = { id:id, img:null, tags:[], note:'' };
+    openSheet('<div class="sheet-title"><span>Add progress</span><button class="sheet-close" onclick="closeSheet()" aria-label="Close">'+icon('close',15)+'</button></div>'
+      + '<div class="ui-sheetbody"><div class="pj-form"><div class="pj-fn">'+E(p.name)+'</div>'
+      + '<button type="button" class="pj-photo" data-pj="pick" id="pj-prev">'+icon('camera',22)+'<span>Take or choose a photo</span></button><input type="file" accept="image/*" id="pj-file" hidden>'
+      + '<div class="ls-lab">What did you do?</div><div class="pill-row ui-chips">'+DID.map(function(t){ return '<button type="button" class="pill ui-chip" data-pj="tag" data-t="'+E(t)+'" aria-pressed="false">'+E(t)+'</button>'; }).join('')+'</div>'
+      + '<textarea class="textline pj-note" id="pj-note" rows="2" placeholder="A note (optional)"></textarea>'
+      + '<button type="button" class="ls-go" data-pj="save">Save progress</button></div></div>');
+  }
+  function finishSheet(id){
+    var p = byId(id); if(!p) return;
+    LISTS.openLS({ title:'Finish “'+p.name.slice(0,24)+'”', needs:true,
+      secs:[ { id:'rt', label:'1 · How did it go?', opts:['Not great','Okay','Good','Great','Proud of it'], sel:[], other:false },
+             { id:'ln', label:'2 · What did you learn? (optional)', multi:true, opts:['Plan more','Go slower','Ask for help','Measure twice','It was fun','Try a harder one'], sel:[], other:true } ],
+      count:function(st){ return st.rt.length ? 1 : 0; }, cta:function(st,n){ return n ? 'Finish project' : 'Pick how it went'; },
+      done:function(st){ var q = byId(id); if(!q) return; q.status = 'done'; q.finished = todayStr(); q.rating = ['','Not great','Okay','Good','Great','Proud of it'].indexOf(st.rt[0]); q.learned = st.ln.map(function(x){ return String(x).slice(0,40); }); saveDB();
+        try{ if(window.REWARD && REWARD.play) REWARD.play('box'); }catch(e){} flashSaved('Project finished'); VIEW = id; render(); } });
+  }
+
+  /* ---------- taps ---------- */
+  document.addEventListener('click', function(e){
+    var b = e.target && e.target.closest ? e.target.closest('[data-pj]') : null; if(!b) return;
+    var a = b.getAttribute('data-pj'), id = b.getAttribute('data-id');
+    if(a==='new') return newSheet();
+    if(a==='idea') return newSheet(b.getAttribute('data-hb'), b.getAttribute('data-n'));
+    if(a==='open'){ VIEW = id; ARM = null; render(); return window.scrollTo(0,0); }
+    if(a==='back'){ VIEW = null; ARM = null; render(); return; }
+    if(a==='add') return addSheet(id);
+    if(a==='finish') return finishSheet(id);
+    if(a==='reopen'){ var p = byId(id); if(p){ p.status = 'active'; p.finished = null; saveDB(); render(); } return; }
+    if(a==='again'){ var q = byId(id); if(q) newSheet(q.hobby, q.name); return; }
+    if(a==='del'){ if(ARM==='p'+id){ DB.projects = list().filter(function(x){ return x.id!==id; }); ARM = null; VIEW = null; saveDB(); flashSaved('Project deleted'); } else ARM = 'p'+id; return render(); }
+    if(a==='delentry'){ var eid = b.getAttribute('data-e'); if(ARM==='e'+eid){ var r = byId(id); if(r){ r.entries = r.entries.filter(function(x){ return x.id!==eid; }); saveDB(); } ARM = null; } else ARM = 'e'+eid; return render(); }
+    if(a==='view'){ var s = byId(id), en = s && s.entries.filter(function(x){ return x.id===b.getAttribute('data-e'); })[0]; if(en) openSheet('<div class="sheet-title"><span>'+E(dFmt(en.ds))+'</span><button class="sheet-close" onclick="closeSheet()" aria-label="Close">'+icon('close',15)+'</button></div><div class="ui-sheetbody"><img src="'+en.img+'" alt="" style="width:100%;border-radius:14px;display:block">'+(en.note ? '<p style="margin:10px 2px;color:var(--ink-soft)">'+E(en.note)+'</p>' : '')+'</div>'); return; }
+    if(a==='pick'){ var f = document.getElementById('pj-file'); if(f) f.click(); return; }
+    if(a==='tag'){ if(!DRAFT) return; var t = b.getAttribute('data-t'), i = DRAFT.tags.indexOf(t); if(i>=0) DRAFT.tags.splice(i,1); else DRAFT.tags.push(t); var on = i<0; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); return; }
+    if(a==='save'){
+      if(!DRAFT) return; var pr = byId(DRAFT.id); if(!pr) return; var note = (document.getElementById('pj-note')||{}).value || '';
+      if(!DRAFT.img && !DRAFT.tags.length && !note.trim()){ try{ flashSaved('Add a photo, tap what you did, or write a note'); }catch(x){} return; }
+      var ent = { id:'e'+Date.now().toString(36)+Math.floor(Math.random()*1e3), ds:todayStr(), ts:Date.now(), img:DRAFT.img, tags:DRAFT.tags.slice(), note:note.trim().slice(0,300) };
+      pr.entries.push(ent);
+      if(!trySave(function(){ pr.entries.pop(); })) return;
+      DRAFT = null; closeSheet(); flashSaved('Progress saved');
+      if(ROUTE.view==='page' && ROUTE.pageId==='projects'){ VIEW = pr.id; } render(); return;
+    }
+  });
+  document.addEventListener('change', function(e){
+    var t = e.target; if(!t || t.id!=='pj-file' || !DRAFT) return; var f = t.files && t.files[0]; t.value = ''; if(!f) return;
+    try{ flashSaved('Shrinking photo…'); }catch(x){}
+    compress(f, function(uri){ if(!uri || !DRAFT){ try{ flashSaved('Could not read that photo'); }catch(x){} return; } DRAFT.img = uri;
+      var pv = document.getElementById('pj-prev'); if(pv){ pv.classList.add('has'); pv.innerHTML = '<img src="'+uri+'" alt="Your photo"><span>Tap to change</span>'; } });
+  });
+  document.addEventListener('keydown', function(e){ var c = e.target && e.target.closest && e.target.closest('.pj-card'); if(c && (e.key==='Enter' || e.key===' ') && e.target===c){ e.preventDefault(); VIEW = c.getAttribute('data-id'); render(); } });
+
+  /* ---------- where you reach it: Settings row, and a card at the bottom of every hobby log ---------- */
+  function counts(){ var L = list(); return { act:L.filter(function(p){ return p.status!=='done'; }).length, fin:L.filter(function(p){ return p.status==='done'; }).length }; }
+  var baseR = render;
+  render = function(){
+    var out = baseR.apply(this, arguments);
+    try{
+      if(typeof ROUTE!=='undefined' && ROUTE.view==='settings' && !document.querySelector('[data-pj-row]')){
+        var c = counts(), row = '<button class="settings-row" data-pj-row="1" onclick="VIEWPJ()"><div><div class="sr-name">Project collection</div><div class="sr-desc">'+(c.act||c.fin ? c.act+' in progress · '+c.fin+' finished' : 'Photo log of what you make, from start to finish')+'</div></div><div class="sr-ico">'+icon('camera',16)+'</div></button>';
+        var at = null; Array.prototype.forEach.call(document.querySelectorAll('#app .settings-row .sr-name'), function(n){ if(/^Book vault$/i.test(n.textContent.trim())) at = n.closest('.settings-row'); });
+        if(at) at.insertAdjacentHTML('afterend', row); else { var sec = document.querySelector('#app .settings-section'); if(sec) sec.insertAdjacentHTML('beforeend', row); }
+      }
+      if(typeof ROUTE!=='undefined' && ROUTE.view==='lanelog' && DB.lane && !document.querySelector('#app .pj-foot')){
+        var pb = document.querySelector('#app .page-body'), hb = (LANES.filter(function(l){ return l.id===DB.lane; })[0]||{}).name || '';
+        if(pb){
+          var mine = list().filter(function(p){ return p.status!=='done' && p.hobby===hb; }).slice(0,3), c2 = counts();
+          pb.insertAdjacentHTML('beforeend', '<div class="pj-foot"><div class="pj-fh">'+icon('camera',14)+' Project collection</div>'
+            + (mine.length ? mine.map(function(p){ return '<div class="pj-frow"><span><b>'+E(p.name)+'</b><small>'+p.entries.length+' update'+(p.entries.length===1?'':'s')+'</small></span><button type="button" data-pj="add" data-id="'+p.id+'">'+icon('camera',14)+' Add progress</button></div>'; }).join('') : '<div class="pj-fs">Making something over several days? Keep a photo log of it and finish it when it is done.</div>')
+            + '<button type="button" class="pj-fall" onclick="VIEWPJ()">'+(c2.act||c2.fin ? 'Open the collection ('+c2.act+' in progress, '+c2.fin+' finished)' : 'Start a project')+'</button></div>');
+        }
+      }
+    }catch(e){ if(window.console) console.error('projects links', e); }
+    return out;
+  };
+  window.VIEWPJ = function(){ VIEW = null; nav('page','projects'); };
+  window.PROJECTS = { list:list, byId:byId };
+
+  var css = '.pj-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0 0 12px}.pj-sum div{background:var(--surface-2);border-radius:14px;padding:10px 6px;text-align:center}.pj-sum b{display:block;font-family:var(--font-display);font-size:22px;color:var(--ink)}.pj-sum span{font-size:10.5px;color:var(--muted);line-height:1.2;display:block}'
+    + '.pj-new{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:52px;border:0;border-radius:18px;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:800;font-size:15px;cursor:pointer;touch-action:manipulation;margin:0 0 6px}'
+    + '.pj-h{font-family:var(--font-display);font-weight:800;font-size:15px;color:var(--ink);margin:18px 2px 8px}.pj-empty{font-size:13px;line-height:1.45;color:var(--muted);background:var(--surface-2);border-radius:16px;padding:14px}'
+    + '.pj-card{display:flex;align-items:center;gap:12px;background:var(--surface);border:1.5px solid var(--line);border-radius:18px;padding:10px;margin:0 0 8px;cursor:pointer}.pj-mid{flex:1;min-width:0}.pj-mid b{display:block;font-size:15px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pj-mid small{display:block;font-size:11.5px;color:var(--muted);line-height:1.35}'
+    + '.pj-th{width:64px;height:64px;border-radius:14px;object-fit:cover;flex:none;background:var(--surface-2)}.pj-th.none{display:flex;align-items:center;justify-content:center;color:var(--muted)}.pj-th.big{width:100%;height:auto;aspect-ratio:1/1}'
+    + '.pj-add{flex:none;display:flex;align-items:center;gap:5px;min-height:44px;padding:0 13px;border:0;border-radius:14px;background:var(--accent-soft);color:var(--ink);font:inherit;font-weight:800;font-size:13px;cursor:pointer;touch-action:manipulation}'
+    + '.pj-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pj-fin{border:1.5px solid var(--line);background:var(--surface);border-radius:18px;padding:8px;text-align:left;font:inherit;cursor:pointer;display:flex;flex-direction:column;gap:6px;min-width:0}.pj-fin b{font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pj-fin small{font-size:11px;color:var(--muted)}.pj-fin .pj-th{border-radius:12px}'
+    + '.pj-ideas{display:flex;flex-wrap:wrap;gap:8px}.pj-ideas button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-height:48px;padding:6px 14px;border:1.5px dashed var(--line);border-radius:16px;background:transparent;color:var(--ink);font:inherit;font-weight:700;font-size:13.5px;cursor:pointer;touch-action:manipulation}.pj-ideas small{font-size:10.5px;font-weight:600;color:var(--muted)}'
+    + '.pj-store{font-size:11.5px;color:var(--muted);text-align:center;margin:18px 0 0}'
+    + '.pj-back{display:inline-flex;align-items:center;gap:4px;min-height:40px;padding:0 4px;border:0;background:transparent;color:var(--ink-soft);font:inherit;font-weight:700;font-size:13.5px;cursor:pointer}'
+    + '.pj-hero{margin:0 0 12px}.pj-name{font-family:var(--font-display);font-weight:800;font-size:24px;line-height:1.15;color:var(--ink);overflow-wrap:anywhere}.pj-meta{font-size:13px;color:var(--muted);margin-top:4px}.pj-goal{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-soft);background:var(--surface-2);border-radius:999px;padding:4px 12px;margin-top:8px}'
+    + '.pj-ba{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px}.pj-ba figure{margin:0}.pj-ba img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:16px;display:block}.pj-ba figcaption{font-size:11.5px;color:var(--muted);margin-top:4px;text-align:center}'
+    + '.pj-ent{display:flex;gap:12px;background:var(--surface);border:1.5px solid var(--line);border-radius:18px;padding:10px;margin:0 0 8px}.pj-eimg{width:92px;height:92px;border-radius:14px;object-fit:cover;flex:none;cursor:zoom-in}.pj-etx{flex:1;min-width:0}.pj-etx b{font-size:13.5px;color:var(--ink)}.pj-etx p{margin:4px 0 0;font-size:13px;line-height:1.4;color:var(--ink-soft);overflow-wrap:anywhere}'
+    + '.pj-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}.pj-tags span{font-size:11.5px;font-weight:700;background:var(--accent-soft);color:var(--ink);border-radius:999px;padding:3px 9px}.pj-x{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:700;padding:8px 0 0;cursor:pointer}'
+    + '.pj-acts{display:flex;flex-direction:column;gap:8px;margin:18px 0 0}.pj-btn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:50px;border:0;border-radius:16px;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:800;font-size:14.5px;cursor:pointer;touch-action:manipulation}.pj-btn.ghost{background:transparent;border:1.5px solid var(--line);color:var(--ink-soft);font-weight:700}.pj-btn.danger{color:#c0463c}'
+    + '.pj-form{display:flex;flex-direction:column;gap:10px;padding-bottom:8px}.pj-fn{font-family:var(--font-display);font-weight:800;font-size:17px;color:var(--ink)}.pj-photo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:120px;border:2px dashed var(--line);border-radius:18px;background:var(--surface-2);color:var(--ink-soft);font:inherit;font-weight:700;font-size:13.5px;cursor:pointer;overflow:hidden;padding:0}.pj-photo.has{border-style:solid;min-height:0}.pj-photo img{width:100%;max-height:240px;object-fit:cover;display:block}.pj-photo.has span{padding:8px}'
+    + '.pj-foot{margin:16px 0 8px;background:var(--surface-2);border-radius:18px;padding:12px}.pj-fh{display:flex;align-items:center;gap:6px;font-weight:800;font-size:13px;color:var(--ink)}.pj-fs{font-size:12.5px;color:var(--ink-soft);margin:6px 0 8px;line-height:1.4}.pj-frow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0}.pj-frow span{min-width:0}.pj-frow b{display:block;font-size:13.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pj-frow small{font-size:11.5px;color:var(--muted)}.pj-frow button{flex:none;display:flex;align-items:center;gap:5px;min-height:42px;padding:0 12px;border:0;border-radius:13px;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:800;font-size:12.5px;cursor:pointer}'
+    + '.pj-fall{display:flex;align-items:center;justify-content:center;width:100%;min-height:42px;margin-top:6px;border:1.5px dashed var(--line);border-radius:13px;background:transparent;color:var(--ink-soft);font:inherit;font-weight:700;font-size:13px;cursor:pointer}';
+  var st = document.createElement('style'); st.id = 'pj-css'; st.textContent = css; document.head.appendChild(st);
+}catch(e){ if(window.console) console.error('projects patch', e); } })();
 </script>
 <script>
 /* ============================================================
